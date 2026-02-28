@@ -41,13 +41,7 @@ This project demonstrates a complete programmable rendering pipeline, including 
 - **W / A / S / D** – Control primary light position
 - **Arrow Keys** – Control secondary light
 
----
 
-## Demo
-
-![Rendering Demo](screenshots/demo.png)
-
----
 
 ## Tech Stack
 
