@@ -1,0 +1,7 @@
+x64/
+.vs/
+*.user
+*.sln
+*.vcxproj
+*.user
+*.exe
