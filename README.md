@@ -6,12 +6,6 @@ implements its own OBJ/MTL parsing, GPU buffer management, a programmable
 Phong-style lighting pipeline, and skybox environment mapping — the full
 path from a mesh file on disk to a shaded frame on screen.
 
-This was a self-directed project to understand the rendering pipeline at
-the level of explicit GPU state and buffer management, rather than through
-a game engine's abstractions.
-
----
-
 ## Features
 
 - Custom OBJ/MTL parser (no external model-loading libraries)
@@ -22,8 +16,7 @@ a game engine's abstractions.
 - Real-time rendering using VAO/VBO
 - Programmable shader pipeline (GLSL)
 - Runtime polygon-mode switching (point / wireframe / fill) for pipeline inspection
-
----
+- Explicit GPU buffer and heap object management with deterministic cleanup on exit
 
 ## Rendering Pipeline
 
@@ -32,19 +25,6 @@ a game engine's abstractions.
 3. Upload vertex data to GPU using VAO/VBO
 4. Apply MVP matrix transformations
 5. Render the skybox, then the scene, with per-fragment lighting and texture sampling in GLSL
-
----
-
-## Technical Highlights
-
-- Implemented custom OBJ/MTL loader without third-party libraries
-- Designed full OpenGL rendering pipeline, including skybox/environment mapping
-- Implemented multi-light Phong-style shading model in GLSL
-- Managed GPU buffers (VAO/VBO) and heap-allocated scene objects explicitly, with
-  deterministic cleanup on exit — no reliance on a framework's lifecycle management
-- Applied MVP matrix transformations for 3D scene control
-
----
 
 ## Controls
 
@@ -61,8 +41,6 @@ a game engine's abstractions.
 - GLEW
 - FreeGLUT
 - GLM
-
----
 
 ## Build Instructions
 
