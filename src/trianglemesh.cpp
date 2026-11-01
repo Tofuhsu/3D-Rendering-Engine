@@ -1,5 +1,8 @@
 #include "trianglemesh.h"
 
+#include <algorithm>
+#include <cmath>
+
 // Constructor of a triangle mesh.
 TriangleMesh::TriangleMesh()
 {
@@ -69,6 +72,12 @@ void TriangleMesh::LoadMaterials()
 		sub.material->SetKs(src.Ks);
 		sub.material->SetNs(src.Ns);
 		sub.material->SetReflectivity(src.reflectivity);
+		// PBR parameters: MTL Pm/Pr when present; otherwise dielectric, with
+		// roughness from the Phong exponent (Blinn-Phong <-> Beckmann/GGX match
+		// a = sqrt(2 / (Ns + 2)), and roughness = sqrt(a)).
+		sub.material->SetMetallic(src.metallic >= 0.0f ? src.metallic : 0.0f);
+		sub.material->SetRoughness(src.roughness >= 0.0f ? src.roughness
+			: std::sqrt(std::sqrt(2.0f / (std::max(src.Ns, 0.0f) + 2.0f))));
 		if (!src.mapKd.empty()) {
 			ImageTexture*& tex = textures[src.mapKd];
 			if (tex == nullptr)

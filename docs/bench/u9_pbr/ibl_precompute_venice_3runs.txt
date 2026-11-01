@@ -1,0 +1,3 @@
+IBL precompute: 117.0 ms (HDR load 29.0, cubemap 3.8, irradiance 31.5, prefilter 47.6, BRDF LUT 5.1)
+IBL precompute: 122.1 ms (HDR load 28.7, cubemap 3.1, irradiance 29.9, prefilter 55.6, BRDF LUT 4.8)
+IBL precompute: 117.1 ms (HDR load 28.5, cubemap 3.6, irradiance 28.5, prefilter 51.7, BRDF LUT 4.9)

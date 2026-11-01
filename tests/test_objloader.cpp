@@ -278,6 +278,20 @@ TEST_CASE("illum 3-7 turns on reflection with Ks as its strength")
 	CHECK(mats[2].reflectivity == 1.0f);	// clamped
 }
 
+TEST_CASE("PBR extension keys Pm and Pr")
+{
+	std::vector<ObjMaterial> mats;
+	std::istringstream in("newmtl Gold\nPm 1\nPr 0.25\nnewmtl Clamp\nPm 3\nPr -1\nnewmtl Plain\nNs 50\n");
+	ParseMtl(in, "", mats);
+	REQUIRE(mats.size() == 3);
+	CHECK(mats[0].metallic == 1.0f);
+	CHECK(mats[0].roughness == doctest::Approx(0.25));
+	CHECK(mats[1].metallic == 1.0f);	// clamped to [0, 1]
+	CHECK(mats[1].roughness == 0.0f);
+	CHECK(mats[2].metallic == -1.0f);	// not given: the renderer derives it
+	CHECK(mats[2].roughness == -1.0f);
+}
+
 TEST_CASE("normalization centers the mesh and scales the longest side to 1")
 {
 	ObjMesh m = Parse("v 2 2 2\nv 6 2 2\nv 2 4 3\nf 1 2 3\n");

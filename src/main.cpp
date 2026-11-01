@@ -10,6 +10,7 @@
 #include "imagetexture.h"
 #include "skybox.h"
 #include "profiler.h"
+#include "ibl.h"
 
 #include <algorithm>
 #include <chrono>
@@ -120,6 +121,18 @@ bool deduplicateVertices = true;
 // --reflect k: environment reflection strength for every material (0..1).
 // Negative (default) keeps each material's own value from the MTL (illum 3-7).
 float reflectOverride = -1.0f;
+// --shading pbr: Cook-Torrance + image-based lighting from --env <file.hdr>
+// (replaces the Phong shader and the sphere skybox). --metallic/--roughness
+// override every material; --exposure scales before tone mapping.
+bool usePbr = false;
+std::string environmentFilePath = "assets/third_party/hdri/studio_small_08_2k.hdr";
+float exposure = 1.0f;
+float iblIntensity = 1.0f;
+float metallicOverride = -1.0f;
+float roughnessOverride = -1.0f;
+EnvironmentIBL* environment = nullptr;
+ShaderProg* pbrShader = nullptr;
+void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::mat4& MVP);
 // --skybox <image>: equirectangular panorama for the background and reflections.
 std::string skyboxFilePath = "assets/textures/photostudio_02_2k.png";
 int framesRendered = 0;
@@ -171,6 +184,14 @@ void ReleaseResources()
         delete profiler;
         profiler = nullptr;
     }
+    if (environment != nullptr) {
+        delete environment;
+        environment = nullptr;
+    }
+    if (pbrShader != nullptr) {
+        delete pbrShader;
+        pbrShader = nullptr;
+    }
     // Delete camera.
     if (camera != nullptr) {
         delete camera;
@@ -214,55 +235,59 @@ void RenderSceneCB()
         glm::mat4x4 MVP = camera->GetProjMatrix() * camera->GetViewMatrix() * sceneObj.worldMatrix;
 
         profiler->BeginPass(PASS_MESH);
-        phongShadingShader->Bind();
+        if (usePbr) {
+            DrawMeshPBR(pMesh, normalMatrix, MVP);
+        } else {
+            phongShadingShader->Bind();
 
-        glUniformMatrix4fv(phongShadingShader->GetLocM(), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
-        glUniformMatrix4fv(phongShadingShader->GetLocNM(), 1, GL_FALSE, glm::value_ptr(normalMatrix));
-        glUniformMatrix4fv(phongShadingShader->GetLocMVP(), 1, GL_FALSE, glm::value_ptr(MVP));
+            glUniformMatrix4fv(phongShadingShader->GetLocM(), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
+            glUniformMatrix4fv(phongShadingShader->GetLocNM(), 1, GL_FALSE, glm::value_ptr(normalMatrix));
+            glUniformMatrix4fv(phongShadingShader->GetLocMVP(), 1, GL_FALSE, glm::value_ptr(MVP));
 
-        // The light objects are the single source of truth for light state.
-        glUniform3fv(phongShadingShader->GetLocAmbientLight(), 1, glm::value_ptr(ambientLight));
-        glUniform3fv(phongShadingShader->GetLocCameraPos(), 1, glm::value_ptr(cameraPos));
-        glUniform3fv(phongShadingShader->GetLocDirLightDir(), 1, glm::value_ptr(dirLight->GetDirection()));
-        glUniform3fv(phongShadingShader->GetLocDirLightRadiance(), 1, glm::value_ptr(dirLight->GetRadiance()));
-        glUniform3fv(phongShadingShader->GetLocPointLightIntensity(), 1, glm::value_ptr(pointLight->GetIntensity()));
-        glUniform3fv(phongShadingShader->GetLocPointLightPos(), 1, glm::value_ptr(pointLight->GetPosition()));
-        glUniform3fv(phongShadingShader->GetLocSpotLightDir(), 1, glm::value_ptr(spotLight->GetDirection()));
-        glUniform3fv(phongShadingShader->GetLocSpotLightIntensity(), 1, glm::value_ptr(spotLight->GetIntensity()));
-        glUniform3fv(phongShadingShader->GetLocSpotLightPos(), 1, glm::value_ptr(spotLight->GetPosition()));
-        glUniform1f(phongShadingShader->GetLoclightconstant(), constant);
-        glUniform1f(phongShadingShader->GetLoclightlinear(), linear);
-        glUniform1f(phongShadingShader->GetLoclightquadratic(), quadratic);
-        glUniform1f(phongShadingShader->GetLocspotLightCutoffStartInDegree(), spotLight->GetCutoffStartInDegree());
-        glUniform1f(phongShadingShader->GetLocspotLightTotalWidthInDegree(), spotLight->GetTotalWidthInDegree());
-        glUniform1i(phongShadingShader->GetLocmapKd(), 0);
-        // The skybox panorama doubles as the environment map (texture unit 1).
-        glUniform1i(phongShadingShader->GetLocEnvMap(), 1);
-        if (skybox != nullptr)
-            skybox->GetTexture()->Bind(GL_TEXTURE1);
+            // The light objects are the single source of truth for light state.
+            glUniform3fv(phongShadingShader->GetLocAmbientLight(), 1, glm::value_ptr(ambientLight));
+            glUniform3fv(phongShadingShader->GetLocCameraPos(), 1, glm::value_ptr(cameraPos));
+            glUniform3fv(phongShadingShader->GetLocDirLightDir(), 1, glm::value_ptr(dirLight->GetDirection()));
+            glUniform3fv(phongShadingShader->GetLocDirLightRadiance(), 1, glm::value_ptr(dirLight->GetRadiance()));
+            glUniform3fv(phongShadingShader->GetLocPointLightIntensity(), 1, glm::value_ptr(pointLight->GetIntensity()));
+            glUniform3fv(phongShadingShader->GetLocPointLightPos(), 1, glm::value_ptr(pointLight->GetPosition()));
+            glUniform3fv(phongShadingShader->GetLocSpotLightDir(), 1, glm::value_ptr(spotLight->GetDirection()));
+            glUniform3fv(phongShadingShader->GetLocSpotLightIntensity(), 1, glm::value_ptr(spotLight->GetIntensity()));
+            glUniform3fv(phongShadingShader->GetLocSpotLightPos(), 1, glm::value_ptr(spotLight->GetPosition()));
+            glUniform1f(phongShadingShader->GetLoclightconstant(), constant);
+            glUniform1f(phongShadingShader->GetLoclightlinear(), linear);
+            glUniform1f(phongShadingShader->GetLoclightquadratic(), quadratic);
+            glUniform1f(phongShadingShader->GetLocspotLightCutoffStartInDegree(), spotLight->GetCutoffStartInDegree());
+            glUniform1f(phongShadingShader->GetLocspotLightTotalWidthInDegree(), spotLight->GetTotalWidthInDegree());
+            glUniform1i(phongShadingShader->GetLocmapKd(), 0);
+            // The skybox panorama doubles as the environment map (texture unit 1).
+            glUniform1i(phongShadingShader->GetLocEnvMap(), 1);
+            if (skybox != nullptr)
+                skybox->GetTexture()->Bind(GL_TEXTURE1);
 
-        for (int i = 0; i < pMesh->GetNumSubMeshes(); i++) {
-            const SubMesh& sub = pMesh->GetSubMeshesPosition(i);
-            if (sub.vaoId == 0) continue;
+            for (int i = 0; i < pMesh->GetNumSubMeshes(); i++) {
+                const SubMesh& sub = pMesh->GetSubMeshesPosition(i);
+                if (sub.vaoId == 0) continue;
 
-            glUniform3fv(phongShadingShader->GetLocKa(), 1, glm::value_ptr(sub.material->GetKa()));
-            glUniform3fv(phongShadingShader->GetLocKd(), 1, glm::value_ptr(sub.material->GetKd()));
-            glUniform3fv(phongShadingShader->GetLocKs(), 1, glm::value_ptr(sub.material->GetKs()));
-            glUniform1f(phongShadingShader->GetLocNs(), sub.material->GetNs());
-            const float reflectivity = (skybox == nullptr) ? 0.0f
-                : (reflectOverride >= 0.0f ? reflectOverride : sub.material->GetReflectivity());
-            glUniform1f(phongShadingShader->GetLocReflectivity(), reflectivity);
-            const bool hasMapKd = sub.material->GetMapKd() != nullptr;
-            glUniform1i(phongShadingShader->GetLocHasMapKd(), hasMapKd ? 1 : 0);
-            if (hasMapKd)
-                sub.material->GetMapKd()->Bind(GL_TEXTURE0);
+                glUniform3fv(phongShadingShader->GetLocKa(), 1, glm::value_ptr(sub.material->GetKa()));
+                glUniform3fv(phongShadingShader->GetLocKd(), 1, glm::value_ptr(sub.material->GetKd()));
+                glUniform3fv(phongShadingShader->GetLocKs(), 1, glm::value_ptr(sub.material->GetKs()));
+                glUniform1f(phongShadingShader->GetLocNs(), sub.material->GetNs());
+                const float reflectivity = (skybox == nullptr) ? 0.0f
+                    : (reflectOverride >= 0.0f ? reflectOverride : sub.material->GetReflectivity());
+                glUniform1f(phongShadingShader->GetLocReflectivity(), reflectivity);
+                const bool hasMapKd = sub.material->GetMapKd() != nullptr;
+                glUniform1i(phongShadingShader->GetLocHasMapKd(), hasMapKd ? 1 : 0);
+                if (hasMapKd)
+                    sub.material->GetMapKd()->Bind(GL_TEXTURE0);
 
-            glBindVertexArray(sub.vaoId);
-            glDrawElements(GL_TRIANGLES, (GLsizei)sub.vertexIndices.size(), GL_UNSIGNED_INT, 0);
-            profiler->CountDraw((long long)sub.vertexIndices.size() / 3);
+                glBindVertexArray(sub.vaoId);
+                glDrawElements(GL_TRIANGLES, (GLsizei)sub.vertexIndices.size(), GL_UNSIGNED_INT, 0);
+                profiler->CountDraw((long long)sub.vertexIndices.size() / 3);
+            }
+            glBindVertexArray(0);
+            phongShadingShader->UnBind();
         }
-        glBindVertexArray(0);
-        phongShadingShader->UnBind();
         profiler->EndPass(PASS_MESH);
 
 
@@ -310,6 +335,12 @@ void RenderSceneCB()
         profiler->CountDraw(skybox->GetNumTriangles());
         profiler->EndPass(PASS_SKYBOX);
     }
+    if (environment != nullptr) {
+        profiler->BeginPass(PASS_SKYBOX);
+        environment->RenderSkybox(camera, exposure);
+        profiler->CountDraw(environment->GetSkyboxTriangles());
+        profiler->EndPass(PASS_SKYBOX);
+    }
     // -------------------------------------------------------------------------------------------
 
     ++framesRendered;
@@ -352,6 +383,61 @@ void RenderSceneCB()
     }
 }
 
+void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::mat4& MVP)
+{
+    ShaderProg& p = *pbrShader;
+    p.Bind();
+    glUniformMatrix4fv(p.Uniform("worldMatrix"), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
+    glUniformMatrix4fv(p.Uniform("normalMatrix"), 1, GL_FALSE, glm::value_ptr(normalMatrix));
+    glUniformMatrix4fv(p.Uniform("MVP"), 1, GL_FALSE, glm::value_ptr(MVP));
+    glUniform3fv(p.Uniform("cameraPos"), 1, glm::value_ptr(cameraPos));
+    glUniform3fv(p.Uniform("dirLightDir"), 1, glm::value_ptr(dirLight->GetDirection()));
+    glUniform3fv(p.Uniform("dirLightRadiance"), 1, glm::value_ptr(dirLight->GetRadiance()));
+    glUniform3fv(p.Uniform("pointLightPos"), 1, glm::value_ptr(pointLight->GetPosition()));
+    glUniform3fv(p.Uniform("pointLightIntensity"), 1, glm::value_ptr(pointLight->GetIntensity()));
+    glUniform3fv(p.Uniform("spotLightPosition"), 1, glm::value_ptr(spotLight->GetPosition()));
+    glUniform3fv(p.Uniform("spotLightDirection"), 1, glm::value_ptr(spotLight->GetDirection()));
+    glUniform3fv(p.Uniform("spotLightIntensity"), 1, glm::value_ptr(spotLight->GetIntensity()));
+    glUniform1f(p.Uniform("constant"), constant);
+    glUniform1f(p.Uniform("linear"), linear);
+    glUniform1f(p.Uniform("quadratic"), quadratic);
+    glUniform1f(p.Uniform("spotLightCutoffStartInDegree"), spotLight->GetCutoffStartInDegree());
+    glUniform1f(p.Uniform("spotLightTotalWidthInDegree"), spotLight->GetTotalWidthInDegree());
+    glUniform1f(p.Uniform("exposure"), exposure);
+    glUniform1f(p.Uniform("iblIntensity"), iblIntensity);
+    glUniform1f(p.Uniform("prefilterMaxLod"), environment->GetPrefilterMaxLod());
+    // Texture units: 0 base colour, 1 irradiance, 2 pre-filtered specular, 3 BRDF LUT.
+    glUniform1i(p.Uniform("mapKd"), 0);
+    glUniform1i(p.Uniform("irradianceMap"), 1);
+    glUniform1i(p.Uniform("prefilterMap"), 2);
+    glUniform1i(p.Uniform("brdfLUT"), 3);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, environment->GetIrradianceMap());
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, environment->GetPrefilterMap());
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, environment->GetBrdfLut());
+
+    for (int i = 0; i < mesh->GetNumSubMeshes(); i++) {
+        const SubMesh& sub = mesh->GetSubMeshesPosition(i);
+        if (sub.vaoId == 0) continue;
+        const PhongMaterial* m = sub.material;
+        glUniform3fv(p.Uniform("baseColor"), 1, glm::value_ptr(m->GetKd()));
+        glUniform1f(p.Uniform("metallic"), metallicOverride >= 0.0f ? metallicOverride : m->GetMetallic());
+        glUniform1f(p.Uniform("roughness"), roughnessOverride >= 0.0f ? roughnessOverride : m->GetRoughness());
+        const bool hasMapKd = m->GetMapKd() != nullptr;
+        glUniform1i(p.Uniform("hasMapKd"), hasMapKd ? 1 : 0);
+        if (hasMapKd)
+            m->GetMapKd()->Bind(GL_TEXTURE0);
+        glBindVertexArray(sub.vaoId);
+        glDrawElements(GL_TRIANGLES, (GLsizei)sub.vertexIndices.size(), GL_UNSIGNED_INT, 0);
+        profiler->CountDraw((long long)sub.vertexIndices.size() / 3);
+    }
+    glBindVertexArray(0);
+    glActiveTexture(GL_TEXTURE0);
+    p.UnBind();
+}
+
 void FinishBenchmark()
 {
     std::vector<FrameSample> samples = profiler->Finish();
@@ -371,6 +457,15 @@ void FinishBenchmark()
               << std::fixed << std::setprecision(1)
               << "load: MTL+textures " << loadMtlMs << " ms, OBJ parse " << loadObjMs
               << " ms, GPU upload " << loadUploadMs << " ms\n";
+    if (environment != nullptr) {
+        const EnvironmentIBL::Timings& t = environment->GetTimings();
+        std::cout << "shading: PBR + IBL (" << environmentFilePath << "), precompute " << t.Total()
+                  << " ms: HDR load " << t.loadHdrMs << ", cubemap " << t.toCubemapMs
+                  << ", irradiance " << t.irradianceMs << ", prefilter " << t.prefilterMs
+                  << ", BRDF LUT " << t.brdfLutMs << "\n";
+    } else {
+        std::cout << "shading: Phong\n";
+    }
     PrintBenchSummary(std::cout, samples);
     if (WriteBenchCsv(benchCsvPath, samples))
         std::cout << "CSV: " << benchCsvPath << std::endl;
@@ -383,15 +478,17 @@ void ReportLiveGLObjects()
 {
     // Names are handed out sequentially from 1, so a scan of the low range finds
     // anything still alive after ReleaseResources().
-    int buffers = 0, textures = 0, vertexArrays = 0, programs = 0;
+    int buffers = 0, textures = 0, vertexArrays = 0, programs = 0, framebuffers = 0;
     for (GLuint id = 1; id <= 4096; ++id) {
         buffers += glIsBuffer(id) ? 1 : 0;
         textures += glIsTexture(id) ? 1 : 0;
         vertexArrays += glIsVertexArray(id) ? 1 : 0;
         programs += glIsProgram(id) ? 1 : 0;
+        framebuffers += (glIsFramebuffer(id) || glIsRenderbuffer(id)) ? 1 : 0;
     }
     std::cout << "Live GL objects after release: " << buffers << " buffers, "
-              << textures << " textures, " << vertexArrays << " vertex arrays, " << programs << " programs" << std::endl;
+              << textures << " textures, " << vertexArrays << " vertex arrays, " << programs << " programs, "
+              << framebuffers << " framebuffers/renderbuffers" << std::endl;
 }
 
 void CaptureFrame(const std::string& path)
@@ -562,6 +659,12 @@ int main(int argc, char** argv)
         else if (arg == "--light-dir") std::sscanf(value.c_str(), "%f,%f,%f", &dirLightDirection.x, &dirLightDirection.y, &dirLightDirection.z);
         else if (arg == "--reflect")   reflectOverride = std::min(1.0f, (float)std::atof(value.c_str()));
         else if (arg == "--skybox")    skyboxFilePath = value;
+        else if (arg == "--shading")   usePbr = (value == "pbr");
+        else if (arg == "--env")       environmentFilePath = value;
+        else if (arg == "--exposure")  exposure = (float)std::atof(value.c_str());
+        else if (arg == "--ibl-intensity") iblIntensity = (float)std::atof(value.c_str());
+        else if (arg == "--metallic")  metallicOverride = std::min(1.0f, (float)std::atof(value.c_str()));
+        else if (arg == "--roughness") roughnessOverride = std::min(1.0f, (float)std::atof(value.c_str()));
         else if (arg == "--rotate")    curObjRotationY = initialObjRotationY = (float)std::atof(value.c_str());
         else if (arg == "--size")    std::sscanf(value.c_str(), "%dx%d", &screenWidth, &screenHeight);
         else continue;
@@ -622,7 +725,22 @@ int main(int argc, char** argv)
     LoadObjects();
     CreateLights();
     CreateCamera();
-    CreateSkybox(skyboxFilePath);
+    if (usePbr) {
+        environment = new EnvironmentIBL();
+        if (!environment->Build(environmentFilePath, EnvironmentIBL::Settings())) {
+            std::cerr << "[ERROR] IBL setup failed (run tools/fetch_assets.sh for the HDR images)" << std::endl;
+            return 1;
+        }
+        const EnvironmentIBL::Timings& t = environment->GetTimings();
+        std::cout << std::fixed << std::setprecision(1) << "IBL precompute: " << t.Total() << " ms (HDR load "
+                  << t.loadHdrMs << ", cubemap " << t.toCubemapMs << ", irradiance " << t.irradianceMs
+                  << ", prefilter " << t.prefilterMs << ", BRDF LUT " << t.brdfLutMs << ")" << std::endl;
+        pbrShader = new ShaderProg();
+        if (!pbrShader->LoadFromFiles("shaders/phong_shading_demo.vs", "shaders/pbr.fs"))
+            return 1;
+    } else {
+        CreateSkybox(skyboxFilePath);
+    }
     CreateShaderLib();
 
     glfwSetFramebufferSizeCallback(window, FramebufferSizeCB);

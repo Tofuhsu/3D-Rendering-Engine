@@ -34,6 +34,8 @@ public:
 		Ks = glm::vec3(0.0f, 0.0f, 0.0f);
 		Ns = 0.0f;
 		reflectivity = 0.0f;
+		metallic = 0.0f;
+		roughness = 0.5f;
 		mapKd = nullptr;
 	};
 	~PhongMaterial() {};
@@ -44,6 +46,8 @@ public:
 	void SetNs(const float n) { Ns = n; }
 	void SetMapKd(ImageTexture* tex) { mapKd = tex; }
 	void SetReflectivity(const float r) { reflectivity = r; }
+	void SetMetallic(const float m) { metallic = m; }
+	void SetRoughness(const float r) { roughness = r; }
 
 	const glm::vec3 GetKa() const { return Ka; }
 	const glm::vec3 GetKd() const { return Kd; }
@@ -51,6 +55,8 @@ public:
 	const float GetNs() const { return Ns; }
 	ImageTexture* GetMapKd() const { return mapKd; }
 	float GetReflectivity() const { return reflectivity; }
+	float GetMetallic() const { return metallic; }
+	float GetRoughness() const { return roughness; }
 
 private:
 	// PhongMaterial Private Data.
@@ -59,6 +65,8 @@ private:
 	glm::vec3 Ks;
 	float Ns;
 	float reflectivity;
+	float metallic;
+	float roughness;
 	ImageTexture* mapKd;
 };
 

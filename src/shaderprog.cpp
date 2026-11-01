@@ -60,6 +60,14 @@ bool ShaderProg::LoadFromFiles(const std::string vsFilePath, const std::string f
     return true;
 }
 
+GLint ShaderProg::Uniform(const std::string& name)
+{
+    auto it = uniformCache.find(name);
+    if (it == uniformCache.end())
+        it = uniformCache.emplace(name, glGetUniformLocation(shaderProgId, name.c_str())).first;
+    return it->second;
+}
+
 void ShaderProg::GetUniformVariableLocation()
 {
     locMVP = glGetUniformLocation(shaderProgId, "MVP");

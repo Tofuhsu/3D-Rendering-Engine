@@ -41,6 +41,9 @@ struct ObjMaterial
 	// Mirror reflection of the environment, 0..1. MTL has no direct key: illum 3-7
 	// mean "reflection on" with Ks as its strength, so this is max(Ks) for those.
 	float reflectivity = 0.0f;
+	// PBR extension keys (Pm metallic, Pr roughness); -1 when the file has none.
+	float metallic = -1.0f;
+	float roughness = -1.0f;
 	std::string mapKd;	// texture path, already joined with the MTL file's folder
 };
 

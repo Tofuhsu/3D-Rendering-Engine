@@ -3,6 +3,8 @@
 
 #include "headers.h"
 
+#include <unordered_map>
+
 // ShaderProg Declarations.
 class ShaderProg
 {
@@ -16,6 +18,8 @@ public:
 	void UnBind() { glUseProgram(0); };
 
 	GLint GetLocMVP() const { return locMVP; }
+	// Location of any uniform by name, looked up once and cached.
+	GLint Uniform(const std::string& name);
 
 protected:
 	// ShaderProg Protected Methods.
@@ -31,6 +35,7 @@ private:
 
 	// ShaderProg Private Data.
 	GLint locMVP;
+	std::unordered_map<std::string, GLint> uniformCache;
 };
 
 // ------------------------------------------------------------------------------------------------
