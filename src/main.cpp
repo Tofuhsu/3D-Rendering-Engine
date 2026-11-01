@@ -110,7 +110,7 @@ std::string benchCsvPath = "bench.csv";
 // cpu_frame with vsync off is the end-to-end number.
 bool vsyncEnabled = true;
 std::chrono::steady_clock::time_point lastTitleUpdate;
-double loadParseMs = 0.0, loadUploadMs = 0.0;
+double loadMtlMs = 0.0, loadObjMs = 0.0, loadUploadMs = 0.0;
 void FinishBenchmark();
 // Model to load (--model <file.obj>); its .mtl must sit next to it with the same name.
 std::string modelFilePath = "assets/Rose/Rose.obj";
@@ -354,7 +354,8 @@ void FinishBenchmark()
               << " | vsync: " << (vsyncEnabled ? "on" : "off")
               << " | warm-up frames: " << benchWarmupFrames << "\n"
               << std::fixed << std::setprecision(1)
-              << "load: parse+textures " << loadParseMs << " ms, GPU upload " << loadUploadMs << " ms\n";
+              << "load: MTL+textures " << loadMtlMs << " ms, OBJ parse " << loadObjMs
+              << " ms, GPU upload " << loadUploadMs << " ms\n";
     PrintBenchSummary(std::cout, samples);
     if (WriteBenchCsv(benchCsvPath, samples))
         std::cout << "CSV: " << benchCsvPath << std::endl;
@@ -499,17 +500,19 @@ void LoadObjects()
     mesh = new TriangleMesh();
     std::string mtlFilePath = modelFilePath.substr(0, modelFilePath.find_last_of('.')) + ".mtl";
     mesh->LoadFromFilemtl(mtlFilePath, true);
+    auto tMtl = Clock::now();
     mesh->LoadFromFile(modelFilePath, true);
     auto t1 = Clock::now();
     mesh->CreateVertexBuffer();
     mesh->CreateSubmeshBuffer();
     glFinish();
     auto t2 = Clock::now();
-    loadParseMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    loadMtlMs = std::chrono::duration<double, std::milli>(tMtl - t0).count();
+    loadObjMs = std::chrono::duration<double, std::milli>(t1 - tMtl).count();
     loadUploadMs = std::chrono::duration<double, std::milli>(t2 - t1).count();
     mesh->ShowInfo();
-    std::cout << std::fixed << std::setprecision(1) << "Load: parse+textures " << loadParseMs
-              << " ms, GPU upload " << loadUploadMs << " ms" << std::endl;
+    std::cout << std::fixed << std::setprecision(1) << "Load: MTL+textures " << loadMtlMs
+              << " ms, OBJ parse " << loadObjMs << " ms, GPU upload " << loadUploadMs << " ms" << std::endl;
     sceneObj.mesh = mesh;
 }
 
