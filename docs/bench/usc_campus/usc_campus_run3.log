@@ -1,0 +1,38 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 16640
+# Triangles: 9684
+# Face corners: 22410 (positions 16640, texcoords 0, normals 2748)
+Total 6 subMeshes loaded
+SubMesh 0 with material: Academic
+Num. triangles in the subMesh: 6992
+SubMesh 1 with material: Other
+Num. triangles in the subMesh: 1026
+SubMesh 2 with material: Residential
+Num. triangles in the subMesh: 1382
+SubMesh 3 with material: Parking
+Num. triangles in the subMesh: 269
+SubMesh 4 with material: Religious
+Num. triangles in the subMesh: 13
+SubMesh 5 with material: Ground
+Num. triangles in the subMesh: 2
+Model Center: 0, 25.525, 0
+Model Extent: 1216.71 x 51.15 x 851.066
+Load: MTL+textures 0.1 ms, OBJ parse 4.4 ms, GPU upload 0.1 ms
+UNSUPPORTED (log once): POSSIBLE ISSUE: unit 0 GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type (Float) - using zero texture because texture unloadable
+
+=== Benchmark ===
+model: assets/third_party/usc_campus/usc_campus.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: MTL+textures 0.1 ms, OBJ parse 4.4 ms, GPU upload 0.1 ms
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.690    0.383    3.775    0.280    5.206
+  cpu_render          0.226    0.213    0.321    0.149    0.548
+  gpu_mesh            0.078    0.078    0.159    0.000    0.601
+  gpu_lights          0.002    0.000    0.000    0.000    0.510
+  gpu_skybox          0.022    0.014    0.085    0.000    0.271
+  gpu_total           0.103    0.097    0.187    0.000    0.911
+  draw calls/frame: 9, triangles/frame: 10980
+CSV: docs/bench/usc_campus/usc_campus_run3.csv

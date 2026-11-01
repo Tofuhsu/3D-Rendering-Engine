@@ -1,0 +1,33 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 4927
+# Triangles: 6216
+# Face corners: 18648 (positions 3169, texcoords 4927, normals 3115)
+Total 4 subMeshes loaded
+SubMesh 0 with material: Material_#35
+Num. triangles in the subMesh: 4344
+SubMesh 1 with material: Material_#36
+Num. triangles in the subMesh: 160
+SubMesh 2 with material: Material_#37
+Num. triangles in the subMesh: 1552
+SubMesh 3 with material: Material_#38
+Num. triangles in the subMesh: 160
+Model Center: 0, 1.03067, -0.611035
+Model Extent: 1.15625 x 2.06082 x 3.40493
+Load: MTL+textures 8.8 ms, OBJ parse 2.6 ms, GPU upload 0.8 ms
+
+=== Benchmark ===
+model: assets/Arcanine/Arcanine.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: MTL+textures 8.8 ms, OBJ parse 2.6 ms, GPU upload 0.8 ms
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.657    0.383    3.296    0.231   29.300
+  cpu_render          0.217    0.208    0.320    0.124    0.600
+  gpu_mesh            0.027    0.015    0.100    0.000    0.352
+  gpu_lights          0.009    0.000    0.045    0.000    0.502
+  gpu_skybox          0.042    0.027    0.115    0.000    0.543
+  gpu_total           0.079    0.058    0.222    0.000    0.756
+  draw calls/frame: 7, triangles/frame: 7512
+CSV: docs/bench/u3_dedup/Arcanine_run3.csv

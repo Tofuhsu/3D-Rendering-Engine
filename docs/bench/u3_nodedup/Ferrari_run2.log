@@ -1,0 +1,31 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 243858
+# Triangles: 121896
+# Face corners: 243858 (positions 61747, texcoords 71301, normals 51501)
+Total 3 subMeshes loaded
+SubMesh 0 with material: Mat
+Num. triangles in the subMesh: 117406
+SubMesh 1 with material: Mirrors
+Num. triangles in the subMesh: 368
+SubMesh 2 with material: Fillers
+Num. triangles in the subMesh: 4122
+Model Center: -0.683868, 53.4748, 0.00106049
+Model Extent: 496.66 x 108.636 x 186.637
+Load: MTL+textures 148.5 ms, OBJ parse 40.2 ms, GPU upload 0.8 ms
+
+=== Benchmark ===
+model: assets/Ferrari/Ferrari.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: MTL+textures 148.5 ms, OBJ parse 40.2 ms, GPU upload 0.8 ms
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.663    0.395    3.386    0.217   25.066
+  cpu_render          0.219    0.209    0.330    0.121    0.632
+  gpu_mesh            0.158    0.154    0.254    0.000    0.957
+  gpu_lights          0.008    0.000    0.013    0.000    0.757
+  gpu_skybox          0.006    0.000    0.032    0.000    0.411
+  gpu_total           0.172    0.159    0.302    0.000    1.273
+  draw calls/frame: 6, triangles/frame: 123192
+CSV: docs/bench/u3_nodedup/Ferrari_run2.csv

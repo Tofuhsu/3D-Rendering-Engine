@@ -7,7 +7,7 @@ x64/
 *.exe
 build/
 
-bench/
+/bench/
 build-*/
 __pycache__/
 # Third-party assets fetched by tools/fetch_assets.sh (sources in assets/third_party/SOURCES.md)
