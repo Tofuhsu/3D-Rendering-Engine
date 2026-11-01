@@ -186,7 +186,8 @@ void ReleaseResources()
     }
 }
 
-static float curObjRotationY = 30.0f;
+static float initialObjRotationY = 30.0f;
+static float curObjRotationY = initialObjRotationY;
 const float rotStep = 0.002f;
 void RenderSceneCB()
 {
@@ -199,7 +200,7 @@ void RenderSceneCB()
         // Update transform. Benchmarks turn the model a fixed 0.36 degrees per frame
         // so every run renders the same sequence of views.
         if (benchFrames > 0)
-            curObjRotationY = 30.0f + 0.36f * (float)framesRendered;
+            curObjRotationY = initialObjRotationY + 0.36f * (float)framesRendered;
         glm::mat4x4 S = glm::scale(glm::mat4x4(1.0f), glm::vec3(1.5f, 1.5f, 1.5f));
         glm::mat4x4 R = glm::rotate(glm::mat4x4(1.0f), glm::radians(curObjRotationY), glm::vec3(0, 1, 0));
         sceneObj.worldMatrix = S * R;
@@ -584,6 +585,10 @@ int main(int argc, char** argv)
         else if (arg == "--csv")     benchCsvPath = value;
         else if (arg == "--vsync")   vsyncEnabled = (value != "off");
         else if (arg == "--dedup")   deduplicateVertices = (value != "off");
+        else if (arg == "--camera")    std::sscanf(value.c_str(), "%f,%f,%f", &cameraPos.x, &cameraPos.y, &cameraPos.z);
+        else if (arg == "--target")    std::sscanf(value.c_str(), "%f,%f,%f", &cameraTarget.x, &cameraTarget.y, &cameraTarget.z);
+        else if (arg == "--light-dir") std::sscanf(value.c_str(), "%f,%f,%f", &dirLightDirection.x, &dirLightDirection.y, &dirLightDirection.z);
+        else if (arg == "--rotate")    curObjRotationY = initialObjRotationY = (float)std::atof(value.c_str());
         else if (arg == "--size")    std::sscanf(value.c_str(), "%dx%d", &screenWidth, &screenHeight);
         else continue;
         ++i;

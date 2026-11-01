@@ -42,6 +42,7 @@ if(ENGINE_BUILD_TESTS)
   FetchContent_Declare(doctest
     URL https://github.com/doctest/doctest/archive/refs/tags/v2.4.11.tar.gz
     URL_HASH SHA256=632ed2c05a7f53fa961381497bf8069093f0d6628c5f26286161fbd32a560186
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     SOURCE_SUBDIR header-only)
   FetchContent_MakeAvailable(doctest)
 
@@ -63,6 +64,11 @@ if(ENGINE_BUILD_TESTS)
   # A short fuzz run is part of the test suite; long runs are started by hand.
   add_test(NAME fuzz_objloader_smoke
            COMMAND fuzz_objloader --iterations 20000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/corpus)
+
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME osm2obj_tests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_osm2obj.py)
+  endif()
 
   if(ENGINE_SANITIZE)
     foreach(t objloader objloader_tests fuzz_objloader)
