@@ -179,6 +179,8 @@ void PhongShadingDemoShaderProg::GetUniformVariableLocation()
 	// -------------------------------------------------------
     locMapKd = glGetUniformLocation(shaderProgId, "mapKd");
     locHasMapKd = glGetUniformLocation(shaderProgId, "hasMapKd");
+    locEnvMap = glGetUniformLocation(shaderProgId, "envMap");
+    locReflectivity = glGetUniformLocation(shaderProgId, "reflectivity");
 
 }
 

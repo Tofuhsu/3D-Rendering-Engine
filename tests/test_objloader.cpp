@@ -263,6 +263,21 @@ TEST_CASE("zero Kd/Ka with a texture means texture only (Maya exports)")
 	CHECK(mats[1].Kd == glm::vec3(0.0f));	// untextured black stays black
 }
 
+TEST_CASE("illum 3-7 turns on reflection with Ks as its strength")
+{
+	std::vector<ObjMaterial> mats;
+	std::istringstream in(
+		"newmtl Chrome\nKs 0.9 0.8 0.7\nillum 3\n"
+		"newmtl Plastic\nKs 0.5 0.5 0.5\nillum 2\n"
+		"newmtl Over\nKs 2 2 2\nillum 5\n");
+	ParseMtl(in, "", mats);
+	REQUIRE(mats.size() == 3);
+	CHECK(mats[0].illum == 3);
+	CHECK(mats[0].reflectivity == doctest::Approx(0.9));
+	CHECK(mats[1].reflectivity == 0.0f);
+	CHECK(mats[2].reflectivity == 1.0f);	// clamped
+}
+
 TEST_CASE("normalization centers the mesh and scales the longest side to 1")
 {
 	ObjMesh m = Parse("v 2 2 2\nv 6 2 2\nv 2 4 3\nf 1 2 3\n");

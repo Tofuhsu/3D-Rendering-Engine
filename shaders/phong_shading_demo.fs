@@ -8,6 +8,9 @@ in vec2 iTexCoord;
 // Material.
 uniform sampler2D mapKd;
 uniform bool hasMapKd;
+// Environment reflection: the skybox's equirectangular panorama.
+uniform sampler2D envMap;
+uniform float reflectivity;	// 0 = none, 1 = mirror (before Fresnel)
 uniform vec3 Ka;
 uniform vec3 Kd;
 uniform vec3 Ks;
@@ -40,6 +43,19 @@ vec3 Phong(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 diffuseColor)
     vec3 R = reflect(-L, N);
     float spec = (NdotL > 0.0) ? pow(max(dot(V, R), 0.0), max(Ns, 1.0)) : 0.0;
     return (diffuseColor * NdotL + Ks * spec) * radiance;
+}
+
+// Look up the panorama in direction d, using the same mapping as the skybox sphere
+// (u = longitude from +x towards +z, v = latitude, +y up).
+vec3 SampleEnvironment(vec3 d)
+{
+    const float PI = 3.14159265359;
+    d = normalize(d);
+    float u = atan(d.z, d.x) / (2.0 * PI);
+    if (u < 0.0) u += 1.0;
+    float v = 0.5 + asin(clamp(d.y, -1.0, 1.0)) / PI;
+    // Level 0: the longitude wrap at u = 0/1 breaks derivative-based mip selection.
+    return textureLod(envMap, vec2(u, v), 0.0).rgb;
 }
 
 float Attenuation(float d)
@@ -75,6 +91,13 @@ void main()
     float cosOuter = cos(radians(spotLightTotalWidthInDegree));
     float cone = clamp((cosTheta - cosOuter) / max(cosInner - cosOuter, 1e-4), 0.0, 1.0);
     color += Phong(N, V, Ls, spotLightIntensity * Attenuation(dSpot) * cone, diffuseColor);
+
+    // Mirror reflection, stronger at grazing angles (Schlick's Fresnel approximation).
+    if (reflectivity > 0.0) {
+        float cosV = max(dot(N, V), 0.0);
+        float F = reflectivity + (1.0 - reflectivity) * pow(1.0 - cosV, 5.0);
+        color = mix(color, SampleEnvironment(reflect(-V, N)), F);
+    }
 
     FragColor = vec4(color, texel.a);
 }

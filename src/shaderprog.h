@@ -92,6 +92,8 @@ public:
 	// -------------------------------------------------------
 	GLint GetLocmapKd() const { return locMapKd; }
 	GLint GetLocHasMapKd() const { return locHasMapKd; }
+	GLint GetLocEnvMap() const { return locEnvMap; }
+	GLint GetLocReflectivity() const { return locReflectivity; }
 
 protected:
 	// PhongShadingDemoShaderProg Protected Methods.
@@ -133,6 +135,8 @@ private:
 
 	GLint locMapKd;
 	GLint locHasMapKd;
+	GLint locEnvMap;
+	GLint locReflectivity;
 };
 
 // ------------------------------------------------------------------------------------------------

@@ -68,6 +68,7 @@ void TriangleMesh::LoadMaterials()
 		sub.material->SetKd(src.Kd);
 		sub.material->SetKs(src.Ks);
 		sub.material->SetNs(src.Ns);
+		sub.material->SetReflectivity(src.reflectivity);
 		if (!src.mapKd.empty()) {
 			ImageTexture*& tex = textures[src.mapKd];
 			if (tex == nullptr)

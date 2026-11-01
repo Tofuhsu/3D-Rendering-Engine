@@ -37,6 +37,10 @@ struct ObjMaterial
 	glm::vec3 Kd = glm::vec3(0.8f);
 	glm::vec3 Ks = glm::vec3(0.0f);
 	float Ns = 10.0f;
+	int illum = 2;
+	// Mirror reflection of the environment, 0..1. MTL has no direct key: illum 3-7
+	// mean "reflection on" with Ks as its strength, so this is max(Ks) for those.
+	float reflectivity = 0.0f;
 	std::string mapKd;	// texture path, already joined with the MTL file's folder
 };
 

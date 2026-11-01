@@ -285,6 +285,7 @@ bool ParseMtl(std::istream& in, const std::string& baseDir, std::vector<ObjMater
 		else if (kw == "Kd" && ParseVec(tokens, 3, v)) current->Kd = glm::vec3(v[0], v[1], v[2]);
 		else if (kw == "Ks" && ParseVec(tokens, 3, v)) current->Ks = glm::vec3(v[0], v[1], v[2]);
 		else if (kw == "Ns" && ParseVec(tokens, 1, v)) current->Ns = v[0];
+		else if (kw == "illum" && ParseVec(tokens, 1, v)) current->illum = (int)v[0];
 		else if (kw == "map_Kd" && tokens.size() >= 2)
 			current->mapKd = JoinPath(baseDir, tokens.back());	// options such as -s u v come first
 	}
@@ -292,6 +293,8 @@ bool ParseMtl(std::istream& in, const std::string& baseDir, std::vector<ObjMater
 	// (map_Kd x Kd) the surface would be black, so a zero colour with a texture
 	// means "texture only".
 	for (ObjMaterial& m : materials) {
+		if (m.illum >= 3 && m.illum <= 7)
+			m.reflectivity = std::min(1.0f, std::max(m.Ks.x, std::max(m.Ks.y, m.Ks.z)));
 		if (m.mapKd.empty())
 			continue;
 		if (m.Kd == glm::vec3(0.0f)) m.Kd = glm::vec3(1.0f);

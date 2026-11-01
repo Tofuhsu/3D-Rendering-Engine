@@ -116,6 +116,11 @@ void FinishBenchmark();
 std::string modelFilePath = "assets/Rose/Rose.obj";
 // --dedup off keeps one vertex per face corner (the original layout), for comparison.
 bool deduplicateVertices = true;
+// --reflect k: environment reflection strength for every material (0..1).
+// Negative (default) keeps each material's own value from the MTL (illum 3-7).
+float reflectOverride = -1.0f;
+// --skybox <image>: equirectangular panorama for the background and reflections.
+std::string skyboxFilePath = "assets/textures/photostudio_02_2k.png";
 int framesRendered = 0;
 const int captureAfterFrames = 10;
 void CaptureFrame(const std::string& path);
@@ -231,6 +236,10 @@ void RenderSceneCB()
         glUniform1f(phongShadingShader->GetLocspotLightCutoffStartInDegree(), spotLight->GetCutoffStartInDegree());
         glUniform1f(phongShadingShader->GetLocspotLightTotalWidthInDegree(), spotLight->GetTotalWidthInDegree());
         glUniform1i(phongShadingShader->GetLocmapKd(), 0);
+        // The skybox panorama doubles as the environment map (texture unit 1).
+        glUniform1i(phongShadingShader->GetLocEnvMap(), 1);
+        if (skybox != nullptr)
+            skybox->GetTexture()->Bind(GL_TEXTURE1);
 
         for (int i = 0; i < pMesh->GetNumSubMeshes(); i++) {
             const SubMesh& sub = pMesh->GetSubMeshesPosition(i);
@@ -240,6 +249,9 @@ void RenderSceneCB()
             glUniform3fv(phongShadingShader->GetLocKd(), 1, glm::value_ptr(sub.material->GetKd()));
             glUniform3fv(phongShadingShader->GetLocKs(), 1, glm::value_ptr(sub.material->GetKs()));
             glUniform1f(phongShadingShader->GetLocNs(), sub.material->GetNs());
+            const float reflectivity = (skybox == nullptr) ? 0.0f
+                : (reflectOverride >= 0.0f ? reflectOverride : sub.material->GetReflectivity());
+            glUniform1f(phongShadingShader->GetLocReflectivity(), reflectivity);
             const bool hasMapKd = sub.material->GetMapKd() != nullptr;
             glUniform1i(phongShadingShader->GetLocHasMapKd(), hasMapKd ? 1 : 0);
             if (hasMapKd)
@@ -588,6 +600,8 @@ int main(int argc, char** argv)
         else if (arg == "--camera")    std::sscanf(value.c_str(), "%f,%f,%f", &cameraPos.x, &cameraPos.y, &cameraPos.z);
         else if (arg == "--target")    std::sscanf(value.c_str(), "%f,%f,%f", &cameraTarget.x, &cameraTarget.y, &cameraTarget.z);
         else if (arg == "--light-dir") std::sscanf(value.c_str(), "%f,%f,%f", &dirLightDirection.x, &dirLightDirection.y, &dirLightDirection.z);
+        else if (arg == "--reflect")   reflectOverride = std::min(1.0f, (float)std::atof(value.c_str()));
+        else if (arg == "--skybox")    skyboxFilePath = value;
         else if (arg == "--rotate")    curObjRotationY = initialObjRotationY = (float)std::atof(value.c_str());
         else if (arg == "--size")    std::sscanf(value.c_str(), "%dx%d", &screenWidth, &screenHeight);
         else continue;
@@ -634,7 +648,7 @@ int main(int argc, char** argv)
     LoadObjects();
     CreateLights();
     CreateCamera();
-    CreateSkybox("assets/textures/photostudio_02_2k.png");
+    CreateSkybox(skyboxFilePath);
     CreateShaderLib();
 
     // Register callback functions.
