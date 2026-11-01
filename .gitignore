@@ -5,3 +5,5 @@ x64/
 *.vcxproj
 *.user
 *.exe
+build/
+

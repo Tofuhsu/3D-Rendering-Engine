@@ -11,7 +11,9 @@
 #include <string.h>
 #include <cstring>
 #include <math.h>
-#include <windows.h>
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 
 using std::vector;

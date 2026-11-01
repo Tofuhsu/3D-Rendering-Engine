@@ -11,6 +11,6 @@ out vec4 FragColor;
 void main()
 {
     // We create the uv coordinate from the top, so we need to flip y.
-    FragColor = texture2D(mapKd, vec2(iTexCoord.x, 1.0 - iTexCoord.y));
+    FragColor = texture(mapKd, vec2(iTexCoord.x, 1.0 - iTexCoord.y));
 }
 

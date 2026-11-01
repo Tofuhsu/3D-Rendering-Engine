@@ -1,4 +1,6 @@
-﻿#include <Windows.h>
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 #include "headers.h"
 #include "trianglemesh.h"
@@ -87,6 +89,14 @@ struct ScenePointLight
 };
 ScenePointLight pointLightObj;
 ScenePointLight spotLightObj;
+
+// Frame capture (--capture <file.ppm>): write one frame and exit.
+std::string captureFilePath;
+// Model to load (--model <file.obj>); its .mtl must sit next to it with the same name.
+std::string modelFilePath = "assets/Rose/Rose.obj";
+int framesRendered = 0;
+const int captureAfterFrames = 10;
+void CaptureFrame(const std::string& path);
 
 // Function prototypes.
 void ReleaseResources();
@@ -256,7 +266,30 @@ void RenderSceneCB()
     }
     // -------------------------------------------------------------------------------------------
 
+    if (!captureFilePath.empty() && ++framesRendered == captureAfterFrames) {
+        CaptureFrame(captureFilePath);
+        ReleaseResources();
+        exit(0);
+    }
+
     glutSwapBuffers();
+}
+
+void CaptureFrame(const std::string& path)
+{
+    // Read the back buffer (before swap) and save it as a binary PPM, top row first.
+    GLint viewport[4];
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    const int w = viewport[2], h = viewport[3];
+    std::vector<unsigned char> pixels((size_t)w * h * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+    std::ofstream ofs(path, std::ios::binary);
+    ofs << "P6\n" << w << " " << h << "\n255\n";
+    for (int y = h - 1; y >= 0; --y)
+        ofs.write((const char*)&pixels[(size_t)y * w * 3], (std::streamsize)w * 3);
+    std::cout << "Captured " << w << "x" << h << " frame to " << path << std::endl;
 }
 
 void ReshapeCB(int w, int h)
@@ -367,8 +400,9 @@ void LoadObjects()
 
     mesh = new TriangleMesh();
     //mesh->LoadFromFile("models/TexCube/TexCube.obj", true);
-    mesh->LoadFromFilemtl("assets/Rose/Rose.mtl", true);
-    mesh->LoadFromFile("assets/Rose/Rose.obj", true);
+    std::string mtlFilePath = modelFilePath.substr(0, modelFilePath.find_last_of('.')) + ".mtl";
+    mesh->LoadFromFilemtl(mtlFilePath, true);
+    mesh->LoadFromFile(modelFilePath, true);
     /*mesh->LoadFromFilemtl("D:/3rd_grade/computer_graphic/ICG2022_HW3/ICG2022_HW3/models/TexCube/TexCube.mtl", true);
     mesh->LoadFromFile("D:/3rd_grade/computer_graphic/ICG2022_HW3/ICG2022_HW3/models/TexCube/TexCube.obj", true);*/
     mesh->ShowInfo();
@@ -431,14 +465,26 @@ void CreateShaderLib()
 
 int main(int argc, char** argv)
 {
+    for (int i = 1; i + 1 < argc; ++i)
+        if (std::string(argv[i]) == "--capture")
+            captureFilePath = argv[i + 1];
+        else if (std::string(argv[i]) == "--model")
+            modelFilePath = argv[i + 1];
+
     // Setting window properties.
     glutInit(&argc, argv);
+#ifdef __APPLE__
+    // macOS only exposes a core profile (3.2+, up to 4.1) through this flag.
+    glutInitDisplayMode(GLUT_3_2_CORE_PROFILE | GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+#else
     glutSetOption(GLUT_MULTISAMPLE, 4);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+#endif
     glutInitWindowSize(screenWidth, screenHeight);
     glutInitWindowPosition(100, 100);
     glutCreateWindow("Texture Mapping");
 
+#ifndef __APPLE__
     // Initialize GLEW.
     // Must be done after glut is initialized!
     GLenum res = glewInit();
@@ -447,6 +493,15 @@ int main(int argc, char** argv)
                   << glewGetErrorString(res) << std::endl;
         return 1;
     }
+#endif
+    std::cout << "GL_VERSION: " << glGetString(GL_VERSION) << std::endl;
+    std::cout << "GL_RENDERER: " << glGetString(GL_RENDERER) << std::endl;
+
+    // Core profile requires a bound VAO for any vertex attribute setup.
+    // A single shared VAO keeps the original per-draw attribute code working.
+    GLuint globalVao = 0;
+    glGenVertexArrays(1, &globalVao);
+    glBindVertexArray(globalVao);
 
     // Initialization.
     SetupRenderState();

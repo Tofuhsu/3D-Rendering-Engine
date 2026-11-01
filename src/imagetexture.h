@@ -22,7 +22,9 @@ private:
 	int imageWidth;
 	int imageHeight;
 	int numChannels;
+#ifndef __APPLE__
 	cv::Mat texImage;
+#endif
 };
 
 #endif

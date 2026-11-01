@@ -41,7 +41,7 @@ void main()
     // Add your implementation.
     // -------------------------------------------------------
 
-    FragColor = texture2D(mapKd,vec2(iTexCoord.x,iTexCoord.y));
+    FragColor = texture(mapKd,vec2(iTexCoord.x,iTexCoord.y));
     
     //ambient light
     vec3 ambient = ambientLight * Ka;
