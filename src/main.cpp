@@ -11,10 +11,9 @@
 #include "skybox.h"
 #include "profiler.h"
 
-#ifdef __APPLE__
-#include <OpenGL/OpenGL.h>
-#endif
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 
 
@@ -27,6 +26,8 @@ GLuint fragmentShader;
 
 
 // Global variables.
+GLFWwindow* window = nullptr;
+bool reportLiveObjects = false;
 int screenWidth = 600;
 int screenHeight = 600;
 // Triangle mesh.
@@ -130,9 +131,8 @@ void ReportLiveGLObjects();
 void ReleaseResources();
 // Callback functions.
 void RenderSceneCB();
-void ReshapeCB(int, int);
-void ProcessSpecialKeysCB(int, int, int);
-void ProcessKeysCB(unsigned char, int, int);
+void FramebufferSizeCB(GLFWwindow*, int, int);
+void KeyCB(GLFWwindow*, int, int, int, int);
 void SetupRenderState();
 void LoadObjects();
 void CreateCamera();
@@ -315,13 +315,13 @@ void RenderSceneCB()
     ++framesRendered;
     if (!captureFilePath.empty() && framesRendered == captureAfterFrames) {
         CaptureFrame(captureFilePath);
-        ReleaseResources();
-        ReportLiveGLObjects();
-        exit(0);
+        reportLiveObjects = true;
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+        return;
     }
 
     profiler->EndFrame();
-    glutSwapBuffers();
+    glfwSwapBuffers(window);
 
     if (benchFrames > 0) {
         // Drop warm-up frames (shader compilation, texture residency, clocks ramping).
@@ -347,7 +347,7 @@ void RenderSceneCB()
         std::ostringstream title;
         title << std::fixed << std::setprecision(2) << "Rendering Engine | frame " << c.mean
               << " ms | GPU " << g.mean << " ms | draws " << (profiler->GetSamples().empty() ? 0 : profiler->GetSamples().back().drawCalls);
-        glutSetWindowTitle(title.str().c_str());
+        glfwSetWindowTitle(window, title.str().c_str());
         profiler->ClearSamples();
     }
 }
@@ -376,8 +376,7 @@ void FinishBenchmark()
         std::cout << "CSV: " << benchCsvPath << std::endl;
     else
         std::cerr << "[ERROR] Cannot write " << benchCsvPath << std::endl;
-    ReleaseResources();
-    exit(0);
+    glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
 
 void ReportLiveGLObjects()
@@ -412,8 +411,10 @@ void CaptureFrame(const std::string& path)
     std::cout << "Captured " << w << "x" << h << " frame to " << path << std::endl;
 }
 
-void ReshapeCB(int w, int h)
+void FramebufferSizeCB(GLFWwindow*, int w, int h)
 {
+    if (w <= 0 || h <= 0)
+        return;	// minimized
     // Update viewport.
     screenWidth = w;
     screenHeight = h;
@@ -423,70 +424,29 @@ void ReshapeCB(int w, int h)
     camera->UpdateProjection(fovy, aspectRatio, zNear, zFar);
 }
 
-void ProcessSpecialKeysCB(int key, int x, int y)
+void KeyCB(GLFWwindow* win, int key, int, int action, int)
 {
-    // Handle special (functional) keyboard inputs such as F1, spacebar, page up, etc. 
+    if (action == GLFW_RELEASE)
+        return;
     switch (key) {
-    // Rendering mode.
-    case GLUT_KEY_F1:
-        // Render with point mode.
-        glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
+    case GLFW_KEY_ESCAPE:
+        glfwSetWindowShouldClose(win, GLFW_TRUE);
         break;
-    case GLUT_KEY_F2:
-        // Render with line mode.
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        break;
-    case GLUT_KEY_F3:
-        // Render with fill mode.
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        break;
-    
-    // Light control.
-    case GLUT_KEY_LEFT:
-        if (pointLight != nullptr)
-            pointLight->MoveLeft(lightMoveSpeed);
-        break;
-    case GLUT_KEY_RIGHT:
-        if (pointLight != nullptr)
-            pointLight->MoveRight(lightMoveSpeed);
-
-        break;
-    case GLUT_KEY_UP:
-        if (pointLight != nullptr)
-            pointLight->MoveUp(lightMoveSpeed);
-
-        break;
-    case GLUT_KEY_DOWN:
-        if (pointLight != nullptr)
-            pointLight->MoveDown(lightMoveSpeed);
-        break;
-    default:
-        break;
-    }
-}
-
-void ProcessKeysCB(unsigned char key, int x, int y)
-{
-    // Handle other keyboard inputs those are not defined as special keys.
-    if (key == 27) {
-        // Release memory allocation if needed.
-        ReleaseResources();
-        exit(0);
-    }
-    // Spot light control.
-    if (spotLight != nullptr) {
-        if (key == 'a') {
-            spotLight->MoveLeft(lightMoveSpeed);
-        }
-        if (key == 'd') {
-            spotLight->MoveRight(lightMoveSpeed);
-        }
-        if (key == 'w') {
-            spotLight->MoveUp(lightMoveSpeed);
-        }
-        if (key == 's') {
-            spotLight->MoveDown(lightMoveSpeed);
-        }
+    // Rendering mode: points, lines, fill.
+    case GLFW_KEY_F1: glPolygonMode(GL_FRONT_AND_BACK, GL_POINT); break;
+    case GLFW_KEY_F2: glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); break;
+    case GLFW_KEY_F3: glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); break;
+    // Point light: arrow keys.
+    case GLFW_KEY_LEFT:  if (pointLight != nullptr) pointLight->MoveLeft(lightMoveSpeed); break;
+    case GLFW_KEY_RIGHT: if (pointLight != nullptr) pointLight->MoveRight(lightMoveSpeed); break;
+    case GLFW_KEY_UP:    if (pointLight != nullptr) pointLight->MoveUp(lightMoveSpeed); break;
+    case GLFW_KEY_DOWN:  if (pointLight != nullptr) pointLight->MoveDown(lightMoveSpeed); break;
+    // Spot light: WASD.
+    case GLFW_KEY_A: if (spotLight != nullptr) spotLight->MoveLeft(lightMoveSpeed); break;
+    case GLFW_KEY_D: if (spotLight != nullptr) spotLight->MoveRight(lightMoveSpeed); break;
+    case GLFW_KEY_W: if (spotLight != nullptr) spotLight->MoveUp(lightMoveSpeed); break;
+    case GLFW_KEY_S: if (spotLight != nullptr) spotLight->MoveDown(lightMoveSpeed); break;
+    default: break;
     }
 }
 
@@ -610,36 +570,50 @@ int main(int argc, char** argv)
     if (benchFrames > 0 && !std::count(argv, argv + argc, std::string("--vsync")))
         vsyncEnabled = false;
 
-    // Setting window properties.
-    glutInit(&argc, argv);
+    // Window and OpenGL context.
+    if (!glfwInit()) {
+        std::cerr << "[ERROR] glfwInit failed" << std::endl;
+        return 1;
+    }
 #ifdef __APPLE__
-    // macOS only exposes a core profile (3.2+, up to 4.1) through this flag.
-    glutInitDisplayMode(GLUT_3_2_CORE_PROFILE | GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+    // macOS only offers core profiles up to 4.1, and only forward-compatible ones.
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+    // One framebuffer pixel per window point, so --size means pixels and numbers
+    // stay comparable with the earlier GLUT runs.
+    glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);
 #else
-    glutSetOption(GLUT_MULTISAMPLE, 4);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 #endif
-    glutInitWindowSize(screenWidth, screenHeight);
-    glutInitWindowPosition(100, 100);
-    glutCreateWindow("Texture Mapping");
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
+    window = glfwCreateWindow(screenWidth, screenHeight, "Rendering Engine", nullptr, nullptr);
+    if (window == nullptr) {
+        const char* description = nullptr;
+        glfwGetError(&description);
+        std::cerr << "[ERROR] Cannot create window: " << (description ? description : "unknown") << std::endl;
+        glfwTerminate();
+        return 1;
+    }
+    glfwMakeContextCurrent(window);
 
-#ifndef __APPLE__
-    // Initialize GLEW.
-    // Must be done after glut is initialized!
+#if defined(ENGINE_USE_GLEW)
+    // Core profiles need glewExperimental; glewInit can leave GL_INVALID_ENUM behind.
+    glewExperimental = GL_TRUE;
     GLenum res = glewInit();
     if (res != GLEW_OK) {
-        std::cerr << "GLEW initialization error: " 
+        std::cerr << "GLEW initialization error: "
                   << glewGetErrorString(res) << std::endl;
         return 1;
     }
+    glGetError();
 #endif
     std::cout << "GL_VERSION: " << glGetString(GL_VERSION) << std::endl;
     std::cout << "GL_RENDERER: " << glGetString(GL_RENDERER) << std::endl;
 
-#ifdef __APPLE__
-    GLint swapInterval = vsyncEnabled ? 1 : 0;
-    CGLSetParameter(CGLGetCurrentContext(), kCGLCPSwapInterval, &swapInterval);
-#endif
+    glfwSwapInterval(vsyncEnabled ? 1 : 0);
     profiler = new FrameProfiler();
     lastTitleUpdate = std::chrono::steady_clock::now();
 
@@ -651,15 +625,22 @@ int main(int argc, char** argv)
     CreateSkybox(skyboxFilePath);
     CreateShaderLib();
 
-    // Register callback functions.
-    glutDisplayFunc(RenderSceneCB);
-    glutIdleFunc(RenderSceneCB);
-    glutReshapeFunc(ReshapeCB);
-    glutSpecialFunc(ProcessSpecialKeysCB);
-    glutKeyboardFunc(ProcessKeysCB);
+    glfwSetFramebufferSizeCallback(window, FramebufferSizeCB);
+    glfwSetKeyCallback(window, KeyCB);
+    int fbWidth = 0, fbHeight = 0;
+    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+    FramebufferSizeCB(window, fbWidth, fbHeight);
 
-    // Start rendering loop.
-    glutMainLoop();
+    // Rendering loop.
+    while (!glfwWindowShouldClose(window)) {
+        RenderSceneCB();
+        glfwPollEvents();
+    }
 
+    ReleaseResources();
+    if (reportLiveObjects)
+        ReportLiveGLObjects();
+    glfwDestroyWindow(window);
+    glfwTerminate();
     return 0;
 }

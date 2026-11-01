@@ -16,27 +16,52 @@ find_path(GLM_INCLUDE_DIR glm/glm.hpp REQUIRED)
 add_library(objloader STATIC src/objloader.cpp)
 target_include_directories(objloader PUBLIC src ${GLM_INCLUDE_DIR} ${GLM_INCLUDE_DIR}/glm)
 
+include(FetchContent)
+
+# GLFW: use an installed copy (e.g. apt libglfw3-dev) or build the pinned release.
+find_package(glfw3 3.3 QUIET)
+if(NOT glfw3_FOUND)
+  set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+  set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(glfw
+    URL https://github.com/glfw/glfw/releases/download/3.5.1/glfw-3.5.1.zip
+    URL_HASH SHA256=ea79bc5feffc254c87291980c2d0bce9acebb68c4983b79f961dcd2cb8a611a0
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(glfw)
+endif()
+
+# stb_image (public domain / MIT), single header pinned to a commit.
+FetchContent_Declare(stb_image
+  URL https://raw.githubusercontent.com/nothings/stb/013ac3beddff3dbffafd5177e7972067cd2b5083/stb_image.h
+  URL_HASH SHA256=594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3
+  DOWNLOAD_NO_EXTRACT TRUE)
+FetchContent_MakeAvailable(stb_image)
+
+# GL entry points: macOS links them directly; elsewhere GLEW loads them at run time.
+if(APPLE)
+  set(ENGINE_USE_GLEW_DEFAULT OFF)
+else()
+  set(ENGINE_USE_GLEW_DEFAULT ON)
+endif()
+option(ENGINE_USE_GLEW "Load OpenGL functions with GLEW" ${ENGINE_USE_GLEW_DEFAULT})
+
 file(GLOB ENGINE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 list(REMOVE_ITEM ENGINE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/objloader.cpp)
 add_executable(engine ${ENGINE_SOURCES})
-target_link_libraries(engine PRIVATE objloader)
-
-if(APPLE)
-  target_link_libraries(engine PRIVATE
-    "-framework OpenGL" "-framework GLUT"
-    "-framework ImageIO" "-framework CoreGraphics" "-framework CoreFoundation")
-else()
-  find_package(OpenGL REQUIRED)
+target_include_directories(engine PRIVATE ${stb_image_SOURCE_DIR})
+target_link_libraries(engine PRIVATE objloader glfw)
+find_package(OpenGL REQUIRED)
+target_link_libraries(engine PRIVATE OpenGL::GL)
+if(ENGINE_USE_GLEW)
   find_package(GLEW REQUIRED)
-  find_package(GLUT REQUIRED)
-  find_package(OpenCV REQUIRED core imgcodecs imgproc highgui)
-  target_link_libraries(engine PRIVATE OpenGL::GL GLEW::GLEW GLUT::GLUT ${OpenCV_LIBS})
-  target_include_directories(engine PRIVATE ${GLEW_INCLUDE_DIRS}/GL ${GLUT_INCLUDE_DIR}/GL)
+  target_link_libraries(engine PRIVATE GLEW::GLEW)
+  target_compile_definitions(engine PRIVATE ENGINE_USE_GLEW)
 endif()
 
 if(ENGINE_BUILD_TESTS)
   enable_testing()
-  include(FetchContent)
   # doctest is header-only; SOURCE_SUBDIR points at a folder without a
   # CMakeLists.txt so its (pre-3.5) build scripts are not configured.
   FetchContent_Declare(doctest

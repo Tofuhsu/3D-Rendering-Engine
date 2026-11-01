@@ -1,12 +1,13 @@
 #include "skybox.h"
 
+#include <cmath>
+
 Skybox::Skybox(const std::string& texImagePath, const int nSlices, const int nStacks, const float radius)
 {
 	rotationY = 0.0f;
 
 	// Load panorama.
 	panorama = new ImageTexture(texImagePath);
-	// panorama->Preview();
 
 	// Create material.
 	material = new SkyboxMaterial();
@@ -92,9 +93,9 @@ void Skybox::CreateSphere3D(const int nSlices, const int nStacks, const float ra
 			// std::cout << glm::degrees<float>(phi) << " " << glm::degrees<float>(theta) << std::endl;
 			glm::vec2 uv = glm::vec2((float)p / (float)numPhi, (float)t / (float)numTheta);
 			// std::cout << uv.x << " " << uv.y << std::endl;
-			float x = radius * std::cosf(theta) * std::cosf(phi);
-			float y = radius * std::sinf(theta);
-			float z = radius * std::cosf(theta) * std::sinf(phi);
+			float x = radius * std::cos(theta) * std::cos(phi);
+			float y = radius * std::sin(theta);
+			float z = radius * std::cos(theta) * std::sin(phi);
 			
 			VertexPT vt = VertexPT(glm::vec3(x, y, z), uv);
 			vertices.push_back(vt);
