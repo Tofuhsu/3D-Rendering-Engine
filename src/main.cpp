@@ -114,6 +114,8 @@ double loadMtlMs = 0.0, loadObjMs = 0.0, loadUploadMs = 0.0;
 void FinishBenchmark();
 // Model to load (--model <file.obj>); its .mtl must sit next to it with the same name.
 std::string modelFilePath = "assets/Rose/Rose.obj";
+// --dedup off keeps one vertex per face corner (the original layout), for comparison.
+bool deduplicateVertices = true;
 int framesRendered = 0;
 const int captureAfterFrames = 10;
 void CaptureFrame(const std::string& path);
@@ -498,17 +500,19 @@ void LoadObjects()
     using Clock = std::chrono::steady_clock;
     auto t0 = Clock::now();
     mesh = new TriangleMesh();
-    std::string mtlFilePath = modelFilePath.substr(0, modelFilePath.find_last_of('.')) + ".mtl";
-    mesh->LoadFromFilemtl(mtlFilePath, true);
-    auto tMtl = Clock::now();
-    mesh->LoadFromFile(modelFilePath, true);
+    ObjLoadOptions options;
+    options.deduplicate = deduplicateVertices;
+    if (!mesh->LoadFromFile(modelFilePath, true, options))
+        exit(1);
+    auto tObj = Clock::now();
+    mesh->LoadMaterials();
     auto t1 = Clock::now();
     mesh->CreateVertexBuffer();
     mesh->CreateSubmeshBuffer();
     glFinish();
     auto t2 = Clock::now();
-    loadMtlMs = std::chrono::duration<double, std::milli>(tMtl - t0).count();
-    loadObjMs = std::chrono::duration<double, std::milli>(t1 - tMtl).count();
+    loadObjMs = std::chrono::duration<double, std::milli>(tObj - t0).count();
+    loadMtlMs = std::chrono::duration<double, std::milli>(t1 - tObj).count();
     loadUploadMs = std::chrono::duration<double, std::milli>(t2 - t1).count();
     mesh->ShowInfo();
     std::cout << std::fixed << std::setprecision(1) << "Load: MTL+textures " << loadMtlMs
@@ -579,6 +583,7 @@ int main(int argc, char** argv)
         else if (arg == "--warmup")  benchWarmupFrames = std::max(0, std::atoi(value.c_str()));
         else if (arg == "--csv")     benchCsvPath = value;
         else if (arg == "--vsync")   vsyncEnabled = (value != "off");
+        else if (arg == "--dedup")   deduplicateVertices = (value != "off");
         else if (arg == "--size")    std::sscanf(value.c_str(), "%dx%d", &screenWidth, &screenHeight);
         else continue;
         ++i;

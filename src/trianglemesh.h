@@ -3,37 +3,9 @@
 
 #include "headers.h"
 #include "material.h"
-#include <fstream>
+#include "objloader.h"
 
-
-#include <iostream>
-#include <string>
-#include <stdlib.h>
-#include <string.h>
-#include <cstring>
-#include <math.h>
-#ifdef _WIN32
-#include <Windows.h>
-#endif
-
-
-// VertexPTN Declarations.
-struct VertexPTN
-{
-	VertexPTN() {
-		position = glm::vec3(0.0f, 0.0f, 0.0f);
-		normal = glm::vec3(0.0f, 1.0f, 0.0f);
-		texcoord = glm::vec2(0.0f, 0.0f);
-	}
-	VertexPTN(glm::vec3 p, glm::vec3 n, glm::vec2 uv) {
-		position = p;
-		normal = n;
-		texcoord = uv;
-	}
-	glm::vec3 position;
-	glm::vec3 normal;
-	glm::vec2 texcoord;
-};
+#include <map>
 
 // SubMesh Declarations.
 struct SubMesh
@@ -57,24 +29,21 @@ public:
 	// TriangleMesh Public Methods.
 	TriangleMesh();
 	~TriangleMesh();
-	
-	// Load the model from an *.OBJ file.
-	bool LoadFromFile(const std::string& filePath, const bool normalized = true);
-	bool LoadFromFilemtl(const std::string& filePath, const bool normalized = true);
-	
+
+	// Load the geometry from an *.OBJ file (see objloader.h).
+	bool LoadFromFile(const std::string& filePath, const bool normalized = true,
+					  const ObjLoadOptions& options = ObjLoadOptions());
+	// Load the OBJ's materials (mtllib) and their textures; call after LoadFromFile.
+	void LoadMaterials();
+
 	// Show model information.
 	void ShowInfo();
-
-	// -------------------------------------------------------
-	// Feel free to add your methods or data here.
-	// -------------------------------------------------------
 
 	int GetNumVertices() const { return numVertices; }
 	int GetNumTriangles() const { return numTriangles; }
 	int GetNumSubMeshes() const { return (int)subMeshes.size(); }
-	int GetNumPositions() const { return vertices.size(); }
+	const ObjStats& GetStats() const { return stats; }
 
-	void SetNumTriangles(const int NumTriangles) { numTriangles = NumTriangles; }
 	GLuint GetvboId() const { return vboId; }
 	const SubMesh& GetSubMeshesPosition(const int i) const { return subMeshes[i]; }
 	void CreateVertexBuffer();
@@ -86,17 +55,15 @@ public:
 	std::vector<VertexPTN> vertices;
 
 private:
-	// -------------------------------------------------------
-	// Feel free to add your methods or data here.
-	// -------------------------------------------------------
-
 	// TriangleMesh Private Data.
 	GLuint vboId;
-
-	// For supporting multiple materials per object, move to SubMesh.
-	// GLuint iboId;
-	//std::vector<unsigned int> vertexIndices;
 	std::vector<SubMesh> subMeshes;
+	// Textures are shared between materials that use the same file.
+	std::map<std::string, ImageTexture*> textures;
+
+	std::string objFilePath;
+	ObjMesh objData;	// parsed groups/materials until LoadMaterials() builds sub-meshes
+	ObjStats stats;
 
 	int numVertices;
 	int numTriangles;
