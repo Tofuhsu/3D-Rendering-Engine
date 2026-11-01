@@ -51,14 +51,8 @@ bool ShaderProg::LoadFromFiles(const std::string vsFilePath, const std::string f
     glDeleteShader(vsId);
     glDeleteShader(fsId);
 
-    // Validate program.
-    glValidateProgram(shaderProgId);
-    glGetProgramiv(shaderProgId, GL_VALIDATE_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(shaderProgId, sizeof(errorLog), NULL, errorLog);
-        std::cerr << "[ERROR] Invalid shader program: " << errorLog << std::endl;
-        return false;
-    }
+    // Note: glValidateProgram checks the *current* GL state (bound VAO, textures),
+    // which is only meaningful right before a draw, so it is not run at load time.
 
     // Update the location of uniform variables.
     GetUniformVariableLocation();
@@ -184,6 +178,7 @@ void PhongShadingDemoShaderProg::GetUniformVariableLocation()
 	// Add your code for getting the location of texture variable.
 	// -------------------------------------------------------
     locMapKd = glGetUniformLocation(shaderProgId, "mapKd");
+    locHasMapKd = glGetUniformLocation(shaderProgId, "hasMapKd");
 
 }
 

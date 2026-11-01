@@ -97,6 +97,7 @@ std::string modelFilePath = "assets/Rose/Rose.obj";
 int framesRendered = 0;
 const int captureAfterFrames = 10;
 void CaptureFrame(const std::string& path);
+void ReportLiveGLObjects();
 
 // Function prototypes.
 void ReleaseResources();
@@ -132,6 +133,13 @@ void ReleaseResources()
         delete spotLight;
         spotLight = nullptr;
     }
+    sceneObj.mesh = nullptr;
+    pointLightObj.light = nullptr;
+    spotLightObj.light = nullptr;
+    if (skybox != nullptr) {
+        delete skybox;
+        skybox = nullptr;
+    }
     // Delete camera.
     if (camera != nullptr) {
         delete camera;
@@ -166,64 +174,50 @@ void RenderSceneCB()
         glm::mat4x4 S = glm::scale(glm::mat4x4(1.0f), glm::vec3(1.5f, 1.5f, 1.5f));
         glm::mat4x4 R = glm::rotate(glm::mat4x4(1.0f), glm::radians(curObjRotationY), glm::vec3(0, 1, 0));
         sceneObj.worldMatrix = S * R;
-        // -------------------------------------------------------
-		// Note: if you want to compute lighting in the View Space, 
-        //       you might need to change the code below.
-		// -------------------------------------------------------
-        glm::mat4x4 normalMatrix = glm::transpose(glm::inverse(camera->GetViewMatrix() * sceneObj.worldMatrix));
+        // Lighting is computed in world space, so normals use the world matrix only.
+        glm::mat4x4 normalMatrix = glm::transpose(glm::inverse(sceneObj.worldMatrix));
         glm::mat4x4 MVP = camera->GetProjMatrix() * camera->GetViewMatrix() * sceneObj.worldMatrix;
-        
-        // -------------------------------------------------------
-		// Add your rendering code here.
-		// -------------------------------------------------------
+
         phongShadingShader->Bind();
 
         glUniformMatrix4fv(phongShadingShader->GetLocM(), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
         glUniformMatrix4fv(phongShadingShader->GetLocNM(), 1, GL_FALSE, glm::value_ptr(normalMatrix));
         glUniformMatrix4fv(phongShadingShader->GetLocMVP(), 1, GL_FALSE, glm::value_ptr(MVP));
 
+        // The light objects are the single source of truth for light state.
         glUniform3fv(phongShadingShader->GetLocAmbientLight(), 1, glm::value_ptr(ambientLight));
         glUniform3fv(phongShadingShader->GetLocCameraPos(), 1, glm::value_ptr(cameraPos));
-        glUniform3fv(phongShadingShader->GetLocDirLightDir(), 1, glm::value_ptr(dirLightDirection));
-        glUniform3fv(phongShadingShader->GetLocDirLightRadiance(), 1, glm::value_ptr(dirLightRadiance));
-        glUniform3fv(phongShadingShader->GetLocPointLightIntensity(), 1, glm::value_ptr(pointLightIntensity));
-        glUniform3fv(phongShadingShader->GetLocPointLightPos(), 1, glm::value_ptr(pointLightPosition));
-        glUniform3fv(phongShadingShader->GetLocSpotLightDir(), 1, glm::value_ptr(spotLightDirection));
-        glUniform3fv(phongShadingShader->GetLocSpotLightIntensity(), 1, glm::value_ptr(spotLightIntensity));
-        glUniform3fv(phongShadingShader->GetLocSpotLightPos(), 1, glm::value_ptr(spotLightPosition));
+        glUniform3fv(phongShadingShader->GetLocDirLightDir(), 1, glm::value_ptr(dirLight->GetDirection()));
+        glUniform3fv(phongShadingShader->GetLocDirLightRadiance(), 1, glm::value_ptr(dirLight->GetRadiance()));
+        glUniform3fv(phongShadingShader->GetLocPointLightIntensity(), 1, glm::value_ptr(pointLight->GetIntensity()));
+        glUniform3fv(phongShadingShader->GetLocPointLightPos(), 1, glm::value_ptr(pointLight->GetPosition()));
+        glUniform3fv(phongShadingShader->GetLocSpotLightDir(), 1, glm::value_ptr(spotLight->GetDirection()));
+        glUniform3fv(phongShadingShader->GetLocSpotLightIntensity(), 1, glm::value_ptr(spotLight->GetIntensity()));
+        glUniform3fv(phongShadingShader->GetLocSpotLightPos(), 1, glm::value_ptr(spotLight->GetPosition()));
         glUniform1f(phongShadingShader->GetLoclightconstant(), constant);
         glUniform1f(phongShadingShader->GetLoclightlinear(), linear);
         glUniform1f(phongShadingShader->GetLoclightquadratic(), quadratic);
-        glUniform1f(phongShadingShader->GetLocspotLightCutoffStartInDegree(), spotLightCutoffStartInDegree);
-        glUniform1f(phongShadingShader->GetLocspotLightTotalWidthInDegree(), spotLightTotalWidthInDegree);
+        glUniform1f(phongShadingShader->GetLocspotLightCutoffStartInDegree(), spotLight->GetCutoffStartInDegree());
+        glUniform1f(phongShadingShader->GetLocspotLightTotalWidthInDegree(), spotLight->GetTotalWidthInDegree());
+        glUniform1i(phongShadingShader->GetLocmapKd(), 0);
 
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
-        glEnableVertexAttribArray(2);
-        glBindBuffer(GL_ARRAY_BUFFER, mesh->GetvboId());
+        for (int i = 0; i < pMesh->GetNumSubMeshes(); i++) {
+            const SubMesh& sub = pMesh->GetSubMeshesPosition(i);
+            if (sub.vaoId == 0) continue;
 
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), 0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), (const GLvoid*)12);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), (const GLvoid*)24);
+            glUniform3fv(phongShadingShader->GetLocKa(), 1, glm::value_ptr(sub.material->GetKa()));
+            glUniform3fv(phongShadingShader->GetLocKd(), 1, glm::value_ptr(sub.material->GetKd()));
+            glUniform3fv(phongShadingShader->GetLocKs(), 1, glm::value_ptr(sub.material->GetKs()));
+            glUniform1f(phongShadingShader->GetLocNs(), sub.material->GetNs());
+            const bool hasMapKd = sub.material->GetMapKd() != nullptr;
+            glUniform1i(phongShadingShader->GetLocHasMapKd(), hasMapKd ? 1 : 0);
+            if (hasMapKd)
+                sub.material->GetMapKd()->Bind(GL_TEXTURE0);
 
-
-        for (int i = 0; i < mesh->GetNumSubMeshes(); i++) {
-            SubMesh tmp = mesh->GetSubMeshesPosition(i);
-
-            glUniform3fv(phongShadingShader->GetLocKa(), 1, glm::value_ptr(tmp.material->GetKa()));
-            glUniform3fv(phongShadingShader->GetLocKd(), 1, glm::value_ptr(tmp.material->GetKd()));
-            glUniform3fv(phongShadingShader->GetLocKs(), 1, glm::value_ptr(tmp.material->GetKs()));
-            if (tmp.material->GetMapKd() != nullptr) {
-                tmp.material->GetMapKd()->Bind(GL_TEXTURE0);
-                glUniform1i(phongShadingShader->GetLocmapKd(), 0);
-            }
-            
-            glUniform1f(phongShadingShader->GetLocNs(), tmp.material->GetNs());
-
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tmp.iboId);
-            glDrawElements(GL_TRIANGLES, tmp.vertexIndices.size(), GL_UNSIGNED_INT, 0);
-
+            glBindVertexArray(sub.vaoId);
+            glDrawElements(GL_TRIANGLES, (GLsizei)sub.vertexIndices.size(), GL_UNSIGNED_INT, 0);
         }
+        glBindVertexArray(0);
         phongShadingShader->UnBind();
 
 
@@ -269,10 +263,26 @@ void RenderSceneCB()
     if (!captureFilePath.empty() && ++framesRendered == captureAfterFrames) {
         CaptureFrame(captureFilePath);
         ReleaseResources();
+        ReportLiveGLObjects();
         exit(0);
     }
 
     glutSwapBuffers();
+}
+
+void ReportLiveGLObjects()
+{
+    // Names are handed out sequentially from 1, so a scan of the low range finds
+    // anything still alive after ReleaseResources().
+    int buffers = 0, textures = 0, vertexArrays = 0, programs = 0;
+    for (GLuint id = 1; id <= 4096; ++id) {
+        buffers += glIsBuffer(id) ? 1 : 0;
+        textures += glIsTexture(id) ? 1 : 0;
+        vertexArrays += glIsVertexArray(id) ? 1 : 0;
+        programs += glIsProgram(id) ? 1 : 0;
+    }
+    std::cout << "Live GL objects after release: " << buffers << " buffers, "
+              << textures << " textures, " << vertexArrays << " vertex arrays, " << programs << " programs" << std::endl;
 }
 
 void CaptureFrame(const std::string& path)
@@ -325,24 +335,20 @@ void ProcessSpecialKeysCB(int key, int x, int y)
     case GLUT_KEY_LEFT:
         if (pointLight != nullptr)
             pointLight->MoveLeft(lightMoveSpeed);
-        pointLightPosition.x -= lightMoveSpeed;
         break;
     case GLUT_KEY_RIGHT:
         if (pointLight != nullptr)
             pointLight->MoveRight(lightMoveSpeed);
-        pointLightPosition.x += lightMoveSpeed;
 
         break;
     case GLUT_KEY_UP:
         if (pointLight != nullptr)
             pointLight->MoveUp(lightMoveSpeed);
-        pointLightPosition.y += lightMoveSpeed;
 
         break;
     case GLUT_KEY_DOWN:
         if (pointLight != nullptr)
             pointLight->MoveDown(lightMoveSpeed);
-        pointLightPosition.y -= lightMoveSpeed;
         break;
     default:
         break;
@@ -360,19 +366,15 @@ void ProcessKeysCB(unsigned char key, int x, int y)
     // Spot light control.
     if (spotLight != nullptr) {
         if (key == 'a') {
-            spotLightPosition.x -= lightMoveSpeed;
             spotLight->MoveLeft(lightMoveSpeed);
         }
         if (key == 'd') {
-            spotLightPosition.x += lightMoveSpeed;
             spotLight->MoveRight(lightMoveSpeed);
         }
         if (key == 'w') {
-            spotLightPosition.y += lightMoveSpeed;
             spotLight->MoveUp(lightMoveSpeed);
         }
         if (key == 's') {
-            spotLightPosition.y -= lightMoveSpeed;
             spotLight->MoveDown(lightMoveSpeed);
         }
     }
@@ -496,12 +498,6 @@ int main(int argc, char** argv)
 #endif
     std::cout << "GL_VERSION: " << glGetString(GL_VERSION) << std::endl;
     std::cout << "GL_RENDERER: " << glGetString(GL_RENDERER) << std::endl;
-
-    // Core profile requires a bound VAO for any vertex attribute setup.
-    // A single shared VAO keeps the original per-draw attribute code working.
-    GLuint globalVao = 0;
-    glGenVertexArrays(1, &globalVao);
-    glBindVertexArray(globalVao);
 
     // Initialization.
     SetupRenderState();

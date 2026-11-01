@@ -20,14 +20,13 @@ using std::vector;
 using namespace std;
 map<string, int>mtlmap;
 
-int buffer = 0;
-
 // Constructor of a triangle mesh.
 TriangleMesh::TriangleMesh()
 {
 	// -------------------------------------------------------
 	// Add your initialization code here.
 	// -------------------------------------------------------
+	vboId = 0;
 	numVertices = 0;
 	numTriangles = 0;
 	objCenter = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -40,8 +39,17 @@ TriangleMesh::~TriangleMesh()
 	// -------------------------------------------------------
 	// Add your release code here.
 	// -------------------------------------------------------
+	for (SubMesh& sub : subMeshes) {
+		if (sub.vaoId != 0) glDeleteVertexArrays(1, &sub.vaoId);
+		if (sub.iboId != 0) glDeleteBuffers(1, &sub.iboId);
+		if (sub.material != nullptr) {
+			delete sub.material->GetMapKd();
+			delete sub.material;
+		}
+	}
+	subMeshes.clear();
+	if (vboId != 0) glDeleteBuffers(1, &vboId);
 	vertices.clear();
-	subMeshes[buffer].vertexIndices.clear();
 }
 
 const std::vector<std::string> split(const std::string& str, const std::string& pattern) {
@@ -113,7 +121,6 @@ bool TriangleMesh::LoadFromFile(const std::string& filePath, const bool normaliz
 		}
 		if (tmpsplit[0] == "usemtl") {
 			SubMeshID = mtlmap[tmpsplit[1]];
-			buffer = SubMeshID;
 			//cout << SubMeshID << endl;
 		}
 
@@ -143,7 +150,9 @@ bool TriangleMesh::LoadFromFile(const std::string& filePath, const bool normaliz
 	
 	ifs.close();
 	numVertices = vertices.size();
-	numTriangles = subMeshes[SubMeshID].vertexIndices.size() / 3;
+	numTriangles = 0;
+	for (const SubMesh& sub : subMeshes)
+		numTriangles += (int)sub.vertexIndices.size() / 3;
 
 
 
@@ -223,6 +232,8 @@ bool TriangleMesh::LoadFromFilemtl(const std::string& filePath, const bool norma
 				SubMesh recent;
 				PhongMaterial* phong = new PhongMaterial;
 				recent.material = phong;
+				// Every newmtl starts a new sub-mesh; later keys apply to it.
+				count = (int)subMeshes.size();
 				subMeshes.push_back(recent);
 				subMeshes[count].material->SetName(tmpsplit[1]);
 				mtlmap[tmpsplit[1]] = count;
@@ -262,11 +273,8 @@ bool TriangleMesh::LoadFromFilemtl(const std::string& filePath, const bool norma
 				string x= filePath;
 				while (x.back() != '/')x.pop_back();
 				x += tmpsplit[1];
-				PhongMaterial recent;
 				ImageTexture* texture = new ImageTexture(x);
-				recent.SetMapKd(texture);
 				subMeshes[count].material->SetMapKd(texture);
-				count++;
 			}
 		}
 		ifs.close();
@@ -285,9 +293,22 @@ void TriangleMesh::CreateVertexBuffer() {
 void TriangleMesh::CreateSubmeshBuffer() {
 
 	for (int i = 0; i < subMeshes.size(); i++) {
+		if (subMeshes[i].vertexIndices.empty()) continue;
+		// The VAO records the attribute layout and the element buffer,
+		// so drawing a sub-mesh is a single bind.
+		glGenVertexArrays(1, &subMeshes[i].vaoId);
+		glBindVertexArray(subMeshes[i].vaoId);
+		glBindBuffer(GL_ARRAY_BUFFER, vboId);
+		glEnableVertexAttribArray(0);
+		glEnableVertexAttribArray(1);
+		glEnableVertexAttribArray(2);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), (const GLvoid*)offsetof(VertexPTN, position));
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), (const GLvoid*)offsetof(VertexPTN, normal));
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), (const GLvoid*)offsetof(VertexPTN, texcoord));
 		glGenBuffers(1, &subMeshes[i].iboId);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, subMeshes[i].iboId);
 		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * subMeshes[i].vertexIndices.size(), &(subMeshes[i].vertexIndices[0]), GL_STATIC_DRAW);
+		glBindVertexArray(0);
 	}
 
 }

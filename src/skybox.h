@@ -45,6 +45,7 @@ private:
 					std::vector<VertexPT>& vertices, std::vector<unsigned int>& indices);
 
 	// Skybox Private Data.
+	GLuint vaoId;
 	GLuint vboId;
 	GLuint iboId;
 	std::vector<VertexPT> vertices;

@@ -41,9 +41,11 @@ struct SubMesh
 	SubMesh() {
 		material = nullptr;
 		iboId = 0;
+		vaoId = 0;
 	}
 	PhongMaterial* material;
 	GLuint iboId;
+	GLuint vaoId;	// VBO attribute layout + this sub-mesh's IBO.
 	std::vector<unsigned int> vertexIndices;
 };
 
@@ -74,7 +76,7 @@ public:
 
 	void SetNumTriangles(const int NumTriangles) { numTriangles = NumTriangles; }
 	GLuint GetvboId() const { return vboId; }
-	SubMesh GetSubMeshesPosition(const int i) { return subMeshes[i]; }
+	const SubMesh& GetSubMeshesPosition(const int i) const { return subMeshes[i]; }
 	void CreateVertexBuffer();
 	void CreateSubmeshBuffer();
 

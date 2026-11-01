@@ -91,6 +91,7 @@ public:
 	// Add your methods for supporting textures.
 	// -------------------------------------------------------
 	GLint GetLocmapKd() const { return locMapKd; }
+	GLint GetLocHasMapKd() const { return locHasMapKd; }
 
 protected:
 	// PhongShadingDemoShaderProg Protected Methods.
@@ -131,6 +132,7 @@ private:
 	// -------------------------------------------------------
 
 	GLint locMapKd;
+	GLint locHasMapKd;
 };
 
 // ------------------------------------------------------------------------------------------------
