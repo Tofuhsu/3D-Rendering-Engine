@@ -38,6 +38,7 @@ public:
 	
 	ImageTexture* GetTexture() { return panorama; };
 	float GetRotation() const  { return rotationY; }
+	int GetNumTriangles() const { return (int)indices.size() / 3; }
 
 private:
 	// Skybox Private Methods.

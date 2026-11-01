@@ -9,6 +9,13 @@
 #include "light.h"
 #include "imagetexture.h"
 #include "skybox.h"
+#include "profiler.h"
+
+#ifdef __APPLE__
+#include <OpenGL/OpenGL.h>
+#endif
+#include <chrono>
+#include <cstdlib>
 
 
 using std::vector;
@@ -92,6 +99,19 @@ ScenePointLight spotLightObj;
 
 // Frame capture (--capture <file.ppm>): write one frame and exit.
 std::string captureFilePath;
+// Profiling (always on). --bench <frames> renders a fixed animation with vsync
+// off, writes a CSV (--csv <file>) and prints mean / median / p95, then exits.
+FrameProfiler* profiler = nullptr;
+int benchFrames = 0;
+int benchWarmupFrames = 60;
+std::string benchCsvPath = "bench.csv";
+// Note: on tile-based GPUs (Apple silicon) fragment work for the whole frame may
+// execute when the render pass is flushed, so the per-pass GPU split is approximate;
+// cpu_frame with vsync off is the end-to-end number.
+bool vsyncEnabled = true;
+std::chrono::steady_clock::time_point lastTitleUpdate;
+double loadParseMs = 0.0, loadUploadMs = 0.0;
+void FinishBenchmark();
 // Model to load (--model <file.obj>); its .mtl must sit next to it with the same name.
 std::string modelFilePath = "assets/Rose/Rose.obj";
 int framesRendered = 0;
@@ -140,6 +160,10 @@ void ReleaseResources()
         delete skybox;
         skybox = nullptr;
     }
+    if (profiler != nullptr) {
+        delete profiler;
+        profiler = nullptr;
+    }
     // Delete camera.
     if (camera != nullptr) {
         delete camera;
@@ -164,13 +188,16 @@ static float curObjRotationY = 30.0f;
 const float rotStep = 0.002f;
 void RenderSceneCB()
 {
+    profiler->BeginFrame();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // Render a triangle mesh with Gouraud shading. ----------------------------------------------
     TriangleMesh* pMesh = sceneObj.mesh;
     if (pMesh != nullptr) {
-        // Update transform.
-        // curObjRotationY += rotStep;
+        // Update transform. Benchmarks turn the model a fixed 0.36 degrees per frame
+        // so every run renders the same sequence of views.
+        if (benchFrames > 0)
+            curObjRotationY = 30.0f + 0.36f * (float)framesRendered;
         glm::mat4x4 S = glm::scale(glm::mat4x4(1.0f), glm::vec3(1.5f, 1.5f, 1.5f));
         glm::mat4x4 R = glm::rotate(glm::mat4x4(1.0f), glm::radians(curObjRotationY), glm::vec3(0, 1, 0));
         sceneObj.worldMatrix = S * R;
@@ -178,6 +205,7 @@ void RenderSceneCB()
         glm::mat4x4 normalMatrix = glm::transpose(glm::inverse(sceneObj.worldMatrix));
         glm::mat4x4 MVP = camera->GetProjMatrix() * camera->GetViewMatrix() * sceneObj.worldMatrix;
 
+        profiler->BeginPass(PASS_MESH);
         phongShadingShader->Bind();
 
         glUniformMatrix4fv(phongShadingShader->GetLocM(), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
@@ -216,15 +244,18 @@ void RenderSceneCB()
 
             glBindVertexArray(sub.vaoId);
             glDrawElements(GL_TRIANGLES, (GLsizei)sub.vertexIndices.size(), GL_UNSIGNED_INT, 0);
+            profiler->CountDraw((long long)sub.vertexIndices.size() / 3);
         }
         glBindVertexArray(0);
         phongShadingShader->UnBind();
+        profiler->EndPass(PASS_MESH);
 
 
     }
     // -------------------------------------------------------------------------------------------
 
     // Visualize the light with fill color. ------------------------------------------------------
+    profiler->BeginPass(PASS_LIGHTS);
     PointLight* pointLight = pointLightObj.light;
     if (pointLight != nullptr) {
         glm::mat4x4 T = glm::translate(glm::mat4x4(1.0f), pointLight->GetPosition());
@@ -235,6 +266,7 @@ void RenderSceneCB()
         glUniform3fv(fillColorShader->GetLocFillColor(), 1, glm::value_ptr(pointLightObj.visColor));
         // Render the point light.
         pointLight->Draw();
+        profiler->CountDraw(0);
         fillColorShader->UnBind();
     }
     SpotLight* spotLight = (SpotLight*)(spotLightObj.light);
@@ -247,8 +279,10 @@ void RenderSceneCB()
         glUniform3fv(fillColorShader->GetLocFillColor(), 1, glm::value_ptr(spotLightObj.visColor));
         // Render the spot light.
         spotLight->Draw();
+        profiler->CountDraw(0);
         fillColorShader->UnBind();
     }
+    profiler->EndPass(PASS_LIGHTS);
     // -------------------------------------------------------------------------------------------
     
     // Render skybox. ----------------------------------------------------------------------------
@@ -256,18 +290,78 @@ void RenderSceneCB()
         // -------------------------------------------------------
 	    // Add your code to rotate the skybox.
         // -------------------------------------------------------
+        profiler->BeginPass(PASS_SKYBOX);
         skybox->Render(camera, skyboxShader);
+        profiler->CountDraw(skybox->GetNumTriangles());
+        profiler->EndPass(PASS_SKYBOX);
     }
     // -------------------------------------------------------------------------------------------
 
-    if (!captureFilePath.empty() && ++framesRendered == captureAfterFrames) {
+    ++framesRendered;
+    if (!captureFilePath.empty() && framesRendered == captureAfterFrames) {
         CaptureFrame(captureFilePath);
         ReleaseResources();
         ReportLiveGLObjects();
         exit(0);
     }
 
+    profiler->EndFrame();
     glutSwapBuffers();
+
+    if (benchFrames > 0) {
+        // Drop warm-up frames (shader compilation, texture residency, clocks ramping).
+        if (framesRendered == benchWarmupFrames) {
+            profiler->Finish();
+            profiler->ClearSamples();
+        }
+        if (framesRendered == benchWarmupFrames + benchFrames)
+            FinishBenchmark();
+        return;
+    }
+
+    // Interactive mode: show a one-second rolling average in the window title.
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration<double>(now - lastTitleUpdate).count() >= 1.0) {
+        lastTitleUpdate = now;
+        std::vector<double> cpu, gpu;
+        for (const FrameSample& f : profiler->GetSamples()) {
+            if (f.cpuFrameMs > 0.0) cpu.push_back(f.cpuFrameMs);
+            gpu.push_back(f.gpuTotalMs);
+        }
+        Stats c = ComputeStats(cpu), g = ComputeStats(gpu);
+        std::ostringstream title;
+        title << std::fixed << std::setprecision(2) << "Rendering Engine | frame " << c.mean
+              << " ms | GPU " << g.mean << " ms | draws " << (profiler->GetSamples().empty() ? 0 : profiler->GetSamples().back().drawCalls);
+        glutSetWindowTitle(title.str().c_str());
+        profiler->ClearSamples();
+    }
+}
+
+void FinishBenchmark()
+{
+    std::vector<FrameSample> samples = profiler->Finish();
+    // The last frame's wall time is unknown (no next frame started); keep the
+    // first benchFrames complete frames.
+    if ((int)samples.size() > benchFrames) samples.resize(benchFrames);
+    if (!samples.empty() && samples.back().cpuFrameMs == 0.0) samples.pop_back();
+
+    GLint viewport[4];
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    std::cout << "\n=== Benchmark ===\n"
+              << "model: " << modelFilePath << "\n"
+              << "renderer: " << glGetString(GL_RENDERER) << " | " << glGetString(GL_VERSION) << "\n"
+              << "viewport: " << viewport[2] << "x" << viewport[3]
+              << " | vsync: " << (vsyncEnabled ? "on" : "off")
+              << " | warm-up frames: " << benchWarmupFrames << "\n"
+              << std::fixed << std::setprecision(1)
+              << "load: parse+textures " << loadParseMs << " ms, GPU upload " << loadUploadMs << " ms\n";
+    PrintBenchSummary(std::cout, samples);
+    if (WriteBenchCsv(benchCsvPath, samples))
+        std::cout << "CSV: " << benchCsvPath << std::endl;
+    else
+        std::cerr << "[ERROR] Cannot write " << benchCsvPath << std::endl;
+    ReleaseResources();
+    exit(0);
 }
 
 void ReportLiveGLObjects()
@@ -400,17 +494,23 @@ void LoadObjects()
     //       the model dynamically.
 	// -------------------------------------------------------
 
+    using Clock = std::chrono::steady_clock;
+    auto t0 = Clock::now();
     mesh = new TriangleMesh();
-    //mesh->LoadFromFile("models/TexCube/TexCube.obj", true);
     std::string mtlFilePath = modelFilePath.substr(0, modelFilePath.find_last_of('.')) + ".mtl";
     mesh->LoadFromFilemtl(mtlFilePath, true);
     mesh->LoadFromFile(modelFilePath, true);
-    /*mesh->LoadFromFilemtl("D:/3rd_grade/computer_graphic/ICG2022_HW3/ICG2022_HW3/models/TexCube/TexCube.mtl", true);
-    mesh->LoadFromFile("D:/3rd_grade/computer_graphic/ICG2022_HW3/ICG2022_HW3/models/TexCube/TexCube.obj", true);*/
-    mesh->ShowInfo();
+    auto t1 = Clock::now();
     mesh->CreateVertexBuffer();
     mesh->CreateSubmeshBuffer();
-    sceneObj.mesh = mesh;    
+    glFinish();
+    auto t2 = Clock::now();
+    loadParseMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    loadUploadMs = std::chrono::duration<double, std::milli>(t2 - t1).count();
+    mesh->ShowInfo();
+    std::cout << std::fixed << std::setprecision(1) << "Load: parse+textures " << loadParseMs
+              << " ms, GPU upload " << loadUploadMs << " ms" << std::endl;
+    sceneObj.mesh = mesh;
 }
 
 void CreateLights()
@@ -467,11 +567,21 @@ void CreateShaderLib()
 
 int main(int argc, char** argv)
 {
-    for (int i = 1; i + 1 < argc; ++i)
-        if (std::string(argv[i]) == "--capture")
-            captureFilePath = argv[i + 1];
-        else if (std::string(argv[i]) == "--model")
-            modelFilePath = argv[i + 1];
+    for (int i = 1; i + 1 < argc; ++i) {
+        const std::string arg = argv[i];
+        const std::string value = argv[i + 1];
+        if (arg == "--capture")      captureFilePath = value;
+        else if (arg == "--model")   modelFilePath = value;
+        else if (arg == "--bench")   benchFrames = std::max(1, std::atoi(value.c_str()));
+        else if (arg == "--warmup")  benchWarmupFrames = std::max(0, std::atoi(value.c_str()));
+        else if (arg == "--csv")     benchCsvPath = value;
+        else if (arg == "--vsync")   vsyncEnabled = (value != "off");
+        else if (arg == "--size")    std::sscanf(value.c_str(), "%dx%d", &screenWidth, &screenHeight);
+        else continue;
+        ++i;
+    }
+    if (benchFrames > 0 && !std::count(argv, argv + argc, std::string("--vsync")))
+        vsyncEnabled = false;
 
     // Setting window properties.
     glutInit(&argc, argv);
@@ -498,6 +608,13 @@ int main(int argc, char** argv)
 #endif
     std::cout << "GL_VERSION: " << glGetString(GL_VERSION) << std::endl;
     std::cout << "GL_RENDERER: " << glGetString(GL_RENDERER) << std::endl;
+
+#ifdef __APPLE__
+    GLint swapInterval = vsyncEnabled ? 1 : 0;
+    CGLSetParameter(CGLGetCurrentContext(), kCGLCPSwapInterval, &swapInterval);
+#endif
+    profiler = new FrameProfiler();
+    lastTitleUpdate = std::chrono::steady_clock::now();
 
     // Initialization.
     SetupRenderState();
