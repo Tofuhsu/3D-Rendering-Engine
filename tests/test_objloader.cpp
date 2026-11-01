@@ -289,18 +289,20 @@ TEST_CASE("normalization centers the mesh and scales the longest side to 1")
 	CHECK((hi - lo).y == doctest::Approx(0.5));
 }
 
-TEST_CASE("bundled models load with consistent counts")
+TEST_CASE("repository models load with consistent counts")
 {
-	struct Expected { const char* name; size_t triangles; size_t subMeshes; };
-	// Triangle totals match the original parser's per-sub-mesh sums.
+	struct Expected { const char* path; size_t triangles; size_t subMeshes; };
+	// Triangle and material counts cross-checked with an independent awk count.
 	const Expected models[] = {
-		{"TexCube", 12, 1}, {"Koffing", 9470, 1}, {"Arcanine", 6216, 4},
-		{"Ivysaur", 6476, 4}, {"Ferrari", 121896, 3}, {"Rose", 166844, 3},
+		{"assets/TexCube/TexCube.obj", 12, 1},
+		{"assets/Rose/Rose.obj", 166844, 3},
+		{"assets/third_party/cornell_box/CornellBox-Original.obj", 36, 8},
+		{"assets/third_party/cornell_box/CornellBox-Sphere.obj", 2188, 8},
+		{"assets/third_party/mori_knob/testObj.obj", 11970, 5},
 	};
 	for (const Expected& e : models) {
-		const std::string name = e.name;
-		CAPTURE(name);
-		const std::string path = std::string(ENGINE_SOURCE_DIR) + "/assets/" + e.name + "/" + e.name + ".obj";
+		const std::string path = std::string(ENGINE_SOURCE_DIR) + "/" + e.path;
+		CAPTURE(path);
 		ObjMesh m;
 		REQUIRE(LoadObjFile(path, m));
 		LoadObjMaterials(path, m);
