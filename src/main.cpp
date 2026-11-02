@@ -11,11 +11,14 @@
 #include "skybox.h"
 #include "profiler.h"
 #include "ibl.h"
+#include "gltfmodel.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cctype>
 #include <cstdlib>
+#include <cstring>
 
 
 using std::vector;
@@ -131,6 +134,19 @@ float iblIntensity = 1.0f;
 float metallicOverride = -1.0f;
 float roughnessOverride = -1.0f;
 EnvironmentIBL* environment = nullptr;
+// Models ending in .gltf / .glb load through the glTF path and always use PBR.
+GltfModel* gltfModel = nullptr;
+bool IsGltfPath(const std::string& path)
+{
+    auto endsWith = [&](const char* ext) {
+        const size_t n = std::strlen(ext);
+        return path.size() >= n && std::equal(path.end() - n, path.end(), ext,
+            [](char a, char b) { return std::tolower((unsigned char)a) == b; });
+    };
+    return endsWith(".gltf") || endsWith(".glb");
+}
+void SetPbrFrameUniforms(const glm::mat4& normalMatrix, const glm::mat4& MVP);
+void DrawGltfPBR(const glm::mat4& normalMatrix, const glm::mat4& MVP);
 ShaderProg* pbrShader = nullptr;
 void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::mat4& MVP);
 // --skybox <image>: equirectangular panorama for the background and reflections.
@@ -188,6 +204,10 @@ void ReleaseResources()
         delete environment;
         environment = nullptr;
     }
+    if (gltfModel != nullptr) {
+        delete gltfModel;
+        gltfModel = nullptr;
+    }
     if (pbrShader != nullptr) {
         delete pbrShader;
         pbrShader = nullptr;
@@ -222,7 +242,7 @@ void RenderSceneCB()
     
     // Render a triangle mesh with Gouraud shading. ----------------------------------------------
     TriangleMesh* pMesh = sceneObj.mesh;
-    if (pMesh != nullptr) {
+    if (pMesh != nullptr || gltfModel != nullptr) {
         // Update transform. Benchmarks turn the model a fixed 0.36 degrees per frame
         // so every run renders the same sequence of views.
         if (benchFrames > 0)
@@ -235,7 +255,9 @@ void RenderSceneCB()
         glm::mat4x4 MVP = camera->GetProjMatrix() * camera->GetViewMatrix() * sceneObj.worldMatrix;
 
         profiler->BeginPass(PASS_MESH);
-        if (usePbr) {
+        if (gltfModel != nullptr) {
+            DrawGltfPBR(normalMatrix, MVP);
+        } else if (usePbr) {
             DrawMeshPBR(pMesh, normalMatrix, MVP);
         } else {
             phongShadingShader->Bind();
@@ -383,10 +405,9 @@ void RenderSceneCB()
     }
 }
 
-void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::mat4& MVP)
+void SetPbrFrameUniforms(const glm::mat4& normalMatrix, const glm::mat4& MVP)
 {
     ShaderProg& p = *pbrShader;
-    p.Bind();
     glUniformMatrix4fv(p.Uniform("worldMatrix"), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
     glUniformMatrix4fv(p.Uniform("normalMatrix"), 1, GL_FALSE, glm::value_ptr(normalMatrix));
     glUniformMatrix4fv(p.Uniform("MVP"), 1, GL_FALSE, glm::value_ptr(MVP));
@@ -417,6 +438,31 @@ void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::m
     glBindTexture(GL_TEXTURE_CUBE_MAP, environment->GetPrefilterMap());
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, environment->GetBrdfLut());
+
+}
+
+void DrawGltfPBR(const glm::mat4& normalMatrix, const glm::mat4& MVP)
+{
+    pbrShader->Bind();
+    SetPbrFrameUniforms(normalMatrix, MVP);
+    std::vector<long long> trianglesPerDraw;
+    gltfModel->Draw(*pbrShader, trianglesPerDraw);
+    for (long long t : trianglesPerDraw)
+        profiler->CountDraw(t);
+    pbrShader->UnBind();
+}
+
+void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::mat4& MVP)
+{
+    ShaderProg& p = *pbrShader;
+    p.Bind();
+    SetPbrFrameUniforms(normalMatrix, MVP);
+    // OBJ materials have no glTF maps.
+    glUniform1i(p.Uniform("hasMetallicRoughnessMap"), 0);
+    glUniform1i(p.Uniform("hasNormalMap"), 0);
+    glUniform1i(p.Uniform("hasOcclusionMap"), 0);
+    glUniform1i(p.Uniform("hasEmissiveMap"), 0);
+    glUniform3f(p.Uniform("emissiveFactor"), 0.0f, 0.0f, 0.0f);
 
     for (int i = 0; i < mesh->GetNumSubMeshes(); i++) {
         const SubMesh& sub = mesh->GetSubMeshesPosition(i);
@@ -455,7 +501,8 @@ void FinishBenchmark()
               << " | vsync: " << (vsyncEnabled ? "on" : "off")
               << " | warm-up frames: " << benchWarmupFrames << "\n"
               << std::fixed << std::setprecision(1)
-              << "load: MTL+textures " << loadMtlMs << " ms, OBJ parse " << loadObjMs
+              << (gltfModel ? "load: images " : "load: MTL+textures ") << loadMtlMs
+              << (gltfModel ? " ms, glTF parse " : " ms, OBJ parse ") << loadObjMs
               << " ms, GPU upload " << loadUploadMs << " ms\n";
     if (environment != nullptr) {
         const EnvironmentIBL::Timings& t = environment->GetTimings();
@@ -568,6 +615,35 @@ void LoadObjects()
 	// -------------------------------------------------------
 
     using Clock = std::chrono::steady_clock;
+    if (IsGltfPath(modelFilePath)) {
+        GltfModelData data;
+        std::string error;
+        if (!LoadGltfFile(modelFilePath, data, error)) {
+            std::cerr << "[ERROR] " << modelFilePath << ": " << error << std::endl;
+            exit(1);
+        }
+        NormalizeToUnitBox(data);
+        auto tUpload = Clock::now();
+        gltfModel = new GltfModel();
+        gltfModel->Upload(data);
+        glFinish();
+        loadUploadMs = std::chrono::duration<double, std::milli>(Clock::now() - tUpload).count();
+        loadObjMs = data.stats.parseMs;
+        loadMtlMs = data.stats.imageDecodeMs;
+        std::cout << "# Vertices: " << gltfModel->GetNumVertices() << std::endl;
+        std::cout << "# Triangles: " << gltfModel->GetNumTriangles() << std::endl;
+        std::cout << "glTF: " << data.stats.nodesWithMesh << " mesh nodes, " << data.stats.primitives
+                  << " primitives (" << data.stats.skippedPrimitives << " skipped), "
+                  << gltfModel->GetNumMaterials() << " materials, " << data.stats.images << " images ("
+                  << data.stats.failedImages << " failed), generated tangents for "
+                  << data.stats.generatedTangents << " vertices, textures ~"
+                  << gltfModel->GetTextureBytes() / (1024 * 1024) << " MiB" << std::endl;
+        for (const std::string& ext : data.stats.extensionsUsed)
+            std::cout << "glTF extension used (ignored): " << ext << std::endl;
+        std::cout << std::fixed << std::setprecision(1) << "Load: glTF parse " << loadObjMs
+                  << " ms, images " << loadMtlMs << " ms, GPU upload " << loadUploadMs << " ms" << std::endl;
+        return;
+    }
     auto t0 = Clock::now();
     mesh = new TriangleMesh();
     ObjLoadOptions options;
@@ -670,6 +746,8 @@ int main(int argc, char** argv)
         else continue;
         ++i;
     }
+    if (IsGltfPath(modelFilePath))
+        usePbr = true;
     if (benchFrames > 0 && !std::count(argv, argv + argc, std::string("--vsync")))
         vsyncEnabled = false;
 
@@ -736,7 +814,7 @@ int main(int argc, char** argv)
                   << t.loadHdrMs << ", cubemap " << t.toCubemapMs << ", irradiance " << t.irradianceMs
                   << ", prefilter " << t.prefilterMs << ", BRDF LUT " << t.brdfLutMs << ")" << std::endl;
         pbrShader = new ShaderProg();
-        if (!pbrShader->LoadFromFiles("shaders/phong_shading_demo.vs", "shaders/pbr.fs"))
+        if (!pbrShader->LoadFromFiles("shaders/pbr.vs", "shaders/pbr.fs"))
             return 1;
     } else {
         CreateSkybox(skyboxFilePath);

@@ -39,6 +39,19 @@ FetchContent_Declare(stb_image
   DOWNLOAD_NO_EXTRACT TRUE)
 FetchContent_MakeAvailable(stb_image)
 
+# cgltf (MIT), single header pinned to the v1.15 release commit.
+FetchContent_Declare(cgltf
+  URL https://raw.githubusercontent.com/jkuhlmann/cgltf/360db1a95480fe102ae9c69b27c5d101167ff5ba/cgltf.h
+  URL_HASH SHA256=e378a21c084bf1f288bb799de827bb26906efb024255f1ecf1705ea13f11c6ec
+  DOWNLOAD_NO_EXTRACT TRUE)
+FetchContent_MakeAvailable(cgltf)
+
+# glTF loading, also GL-free; brings its own copies of the cgltf and stb_image
+# implementations so tests and fuzzing can link it alone.
+add_library(gltfloader STATIC src/gltfloader.cpp src/cgltf_impl.cpp src/stb_image_impl.cpp)
+target_include_directories(gltfloader PUBLIC src ${GLM_INCLUDE_DIR} ${GLM_INCLUDE_DIR}/glm
+                           ${cgltf_SOURCE_DIR} ${stb_image_SOURCE_DIR})
+
 # GL entry points: macOS links them directly; elsewhere GLEW loads them at run time.
 if(APPLE)
   set(ENGINE_USE_GLEW_DEFAULT OFF)
@@ -48,10 +61,12 @@ endif()
 option(ENGINE_USE_GLEW "Load OpenGL functions with GLEW" ${ENGINE_USE_GLEW_DEFAULT})
 
 file(GLOB ENGINE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
-list(REMOVE_ITEM ENGINE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/objloader.cpp)
+list(REMOVE_ITEM ENGINE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/objloader.cpp
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/gltfloader.cpp ${CMAKE_CURRENT_SOURCE_DIR}/src/cgltf_impl.cpp
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/stb_image_impl.cpp)
 add_executable(engine ${ENGINE_SOURCES})
 target_include_directories(engine PRIVATE ${stb_image_SOURCE_DIR})
-target_link_libraries(engine PRIVATE objloader glfw)
+target_link_libraries(engine PRIVATE objloader gltfloader glfw)
 find_package(OpenGL REQUIRED)
 target_link_libraries(engine PRIVATE OpenGL::GL)
 if(ENGINE_USE_GLEW)
@@ -79,16 +94,29 @@ if(ENGINE_BUILD_TESTS)
   target_compile_definitions(objloader_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME objloader_tests COMMAND objloader_tests)
 
-  add_executable(fuzz_objloader tests/fuzz_objloader.cpp)
-  target_link_libraries(fuzz_objloader PRIVATE objloader)
-  if(ENGINE_LIBFUZZER)
-    target_compile_definitions(fuzz_objloader PRIVATE ENGINE_LIBFUZZER)
-    target_compile_options(fuzz_objloader PRIVATE -fsanitize=fuzzer)
-    target_link_options(fuzz_objloader PRIVATE -fsanitize=fuzzer)
-  endif()
-  # A short fuzz run is part of the test suite; long runs are started by hand.
+  add_executable(gltfloader_tests tests/test_gltfloader.cpp)
+  target_link_libraries(gltfloader_tests PRIVATE gltfloader)
+  target_include_directories(gltfloader_tests PRIVATE ${doctest_SOURCE_DIR})
+  target_compile_definitions(gltfloader_tests PRIVATE ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME gltfloader_tests COMMAND gltfloader_tests)
+
+  # Fuzz targets: libFuzzer when available, else the built-in mutation driver.
+  foreach(target objloader gltfloader)
+    add_executable(fuzz_${target} tests/fuzz_${target}.cpp)
+    target_link_libraries(fuzz_${target} PRIVATE ${target})
+    if(ENGINE_LIBFUZZER)
+      target_compile_definitions(fuzz_${target} PRIVATE ENGINE_LIBFUZZER)
+      target_compile_options(fuzz_${target} PRIVATE -fsanitize=fuzzer)
+      target_link_options(fuzz_${target} PRIVATE -fsanitize=fuzzer)
+    else()
+      target_sources(fuzz_${target} PRIVATE tests/fuzz_driver.cpp)
+    endif()
+  endforeach()
+  # Short fuzz runs are part of the test suite; long runs are started by hand.
   add_test(NAME fuzz_objloader_smoke
            COMMAND fuzz_objloader --iterations 20000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/corpus)
+  add_test(NAME fuzz_gltfloader_smoke
+           COMMAND fuzz_gltfloader --iterations 5000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/corpus_gltf)
 
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
@@ -96,7 +124,7 @@ if(ENGINE_BUILD_TESTS)
   endif()
 
   if(ENGINE_SANITIZE)
-    foreach(t objloader objloader_tests fuzz_objloader)
+    foreach(t objloader objloader_tests fuzz_objloader gltfloader gltfloader_tests fuzz_gltfloader)
       target_compile_options(${t} PRIVATE ${SANITIZER_FLAGS})
       target_link_options(${t} PRIVATE ${SANITIZER_FLAGS})
     endforeach()

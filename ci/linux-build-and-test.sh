@@ -71,3 +71,10 @@ print(f"pbr capture: {distinct} distinct colours")
 sys.exit(0 if distinct > 1000 else 1)
 PY
 echo "PBR smoke test passed"
+
+# glTF smoke test with the committed seed (embedded PNG texture, node hierarchy).
+xvfb-run -a -s "-screen 0 1024x768x24" \
+  "$BUILD/engine" --model tests/corpus_gltf/triangle.glb --env /tmp/sky.hdr --capture /tmp/gltf.ppm | tee /tmp/gltf.log
+grep -q "glTF: 1 mesh nodes, 1 primitives (0 skipped), 1 materials, 1 images (0 failed)" /tmp/gltf.log
+grep -q "Live GL objects after release: 0 buffers, 0 textures, 0 vertex arrays, 0 programs, 0 framebuffers/renderbuffers" /tmp/gltf.log
+echo "glTF smoke test passed"

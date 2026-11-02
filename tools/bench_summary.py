@@ -19,6 +19,9 @@ def parse_log(text):
     m = re.search(r"Load: MTL\+textures ([\d.]+) ms, OBJ parse ([\d.]+) ms, GPU upload ([\d.]+) ms", text)
     if m:
         row["mtl_ms"], row["obj_ms"], row["upload_ms"] = map(float, m.groups())
+    m = re.search(r"Load: glTF parse ([\d.]+) ms, images ([\d.]+) ms, GPU upload ([\d.]+) ms", text)
+    if m:
+        row["obj_ms"], row["mtl_ms"], row["upload_ms"] = map(float, m.groups())
     for name in ("cpu_frame", "cpu_render", "gpu_mesh", "gpu_total"):
         m = re.search(rf"^\s+{name}\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)", text, re.M)
         if m:
@@ -47,7 +50,7 @@ def main():
     first = first_runs[0]
     print(f"Machine: {first['renderer']}; viewport {first['viewport']}; "
           f"1000 frames after 100 warm-up; median of {len(first_runs)} runs.\n")
-    print("| Model | Vertices | Triangles | OBJ parse ms | MTL+textures ms | Draws | CPU frame median ms | CPU frame p95 ms | GPU total median ms |")
+    print("| Model | Vertices | Triangles | Parse ms | Textures ms | Draws | CPU frame median ms | CPU frame p95 ms | GPU total median ms |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for model, rows in runs.items():
         print(f"| {model} | {rows[0]['vertices']:,} | {rows[0]['triangles']:,} | {med(rows, 'obj_ms'):.1f} | "
