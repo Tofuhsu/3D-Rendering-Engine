@@ -52,6 +52,14 @@ uniform float prefilterMaxLod;
 uniform float iblIntensity;
 uniform float exposure;
 
+// Directional-light shadow map (texture unit 8).
+uniform sampler2DShadow shadowMap;
+uniform mat4 lightViewProj;
+uniform bool shadowsEnabled;
+uniform int pcfRadius;			// 0: 1 tap, 1: 3x3, 2: 5x5 (each tap is a 2x2 bilinear compare)
+uniform float shadowTexelSize;	// 1 / map size
+uniform float shadowNormalOffset;	// world units, ~1.5 shadow texels
+
 out vec4 FragColor;
 
 const float PI = 3.14159265359;
@@ -98,6 +106,26 @@ vec3 CookTorrance(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, vec3 F0, f
     return (kD * albedo / PI + specular) * radiance * NdotL;
 }
 
+// Fraction of the directional light that reaches this point (1 = fully lit).
+float DirectionalShadow(vec3 N, vec3 L)
+{
+    if (!shadowsEnabled)
+        return 1.0;
+    // Normal-offset and slope-scaled bias against shadow acne.
+    float NdotL = clamp(dot(N, L), 0.0, 1.0);
+    vec4 p = lightViewProj * vec4(iPosWorld + N * shadowNormalOffset * (1.0 - NdotL), 1.0);
+    vec3 c = p.xyz / p.w * 0.5 + 0.5;
+    if (c.z > 1.0)
+        return 1.0;
+    float bias = mix(0.0015, 0.0003, NdotL);
+    float lit = 0.0;
+    for (int y = -pcfRadius; y <= pcfRadius; ++y)
+        for (int x = -pcfRadius; x <= pcfRadius; ++x)
+            lit += texture(shadowMap, vec3(c.xy + vec2(x, y) * shadowTexelSize, c.z - bias));
+    float taps = float((2 * pcfRadius + 1) * (2 * pcfRadius + 1));
+    return lit / taps;
+}
+
 float Attenuation(float d)
 {
     return 1.0 / (constant + linear * d + quadratic * d * d);
@@ -135,7 +163,8 @@ void main()
     vec3 F0 = mix(vec3(0.04), albedo, metal);
 
     // Analytic lights.
-    vec3 Lo = CookTorrance(N, V, normalize(-dirLightDir), dirLightRadiance, albedo, F0, r, metal);
+    vec3 Ld = normalize(-dirLightDir);
+    vec3 Lo = CookTorrance(N, V, Ld, dirLightRadiance * DirectionalShadow(normalize(iNormalWorld), Ld), albedo, F0, r, metal);
     vec3 toPoint = pointLightPos - iPosWorld;
     float dPoint = length(toPoint);
     Lo += CookTorrance(N, V, toPoint / dPoint, pointLightIntensity * Attenuation(dPoint), albedo, F0, r, metal);

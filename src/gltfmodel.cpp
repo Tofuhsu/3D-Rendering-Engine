@@ -71,6 +71,16 @@ void GltfModel::Upload(const GltfModelData& data)
 	}
 }
 
+void GltfModel::DrawGeometryOnly(std::vector<long long>& trianglesPerDraw) const
+{
+	for (const Group& g : groups) {
+		glBindVertexArray(g.vao);
+		glDrawElements(GL_TRIANGLES, g.indexCount, GL_UNSIGNED_INT, 0);
+		trianglesPerDraw.push_back(g.indexCount / 3);
+	}
+	glBindVertexArray(0);
+}
+
 void GltfModel::Draw(ShaderProg& p, std::vector<long long>& trianglesPerDraw)
 {
 	// Bind `image` to `unit` and tell the shader whether the map exists.

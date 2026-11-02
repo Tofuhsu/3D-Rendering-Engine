@@ -22,7 +22,8 @@ def parse_log(text):
     m = re.search(r"Load: glTF parse ([\d.]+) ms, images ([\d.]+) ms, GPU upload ([\d.]+) ms", text)
     if m:
         row["obj_ms"], row["mtl_ms"], row["upload_ms"] = map(float, m.groups())
-    for name in ("cpu_frame", "cpu_render", "gpu_mesh", "gpu_total"):
+    for name in ("cpu_frame", "cpu_render", "gpu_shadow", "gpu_mesh", "gpu_total",
+                 "sync_shadow", "sync_mesh", "sync_frame"):
         m = re.search(rf"^\s+{name}\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)", text, re.M)
         if m:
             row[f"{name}_mean"], row[f"{name}_median"], row[f"{name}_p95"] = map(float, m.groups())
@@ -50,12 +51,15 @@ def main():
     first = first_runs[0]
     print(f"Machine: {first['renderer']}; viewport {first['viewport']}; "
           f"1000 frames after 100 warm-up; median of {len(first_runs)} runs.\n")
-    print("| Model | Vertices | Triangles | Parse ms | Textures ms | Draws | CPU frame median ms | CPU frame p95 ms | GPU total median ms |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    print("| Model | Vertices | Triangles | Parse ms | Textures ms | Draws | CPU frame median ms | CPU frame p95 ms | GPU total median ms | GPU shadow median ms | GPU mesh median ms | Sync shadow median ms | Sync mesh median ms | Sync frame median ms |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for model, rows in runs.items():
         print(f"| {model} | {rows[0]['vertices']:,} | {rows[0]['triangles']:,} | {med(rows, 'obj_ms'):.1f} | "
               f"{med(rows, 'mtl_ms'):.1f} | {rows[0]['draws']} | {med(rows, 'cpu_frame_median'):.3f} | "
-              f"{med(rows, 'cpu_frame_p95'):.3f} | {med(rows, 'gpu_total_median'):.3f} |")
+              f"{med(rows, 'cpu_frame_p95'):.3f} | {med(rows, 'gpu_total_median'):.3f} | "
+              f"{med(rows, 'gpu_shadow_median'):.3f} | {med(rows, 'gpu_mesh_median'):.3f} | "
+              f"{med(rows, 'sync_shadow_median'):.3f} | {med(rows, 'sync_mesh_median'):.3f} | "
+              f"{med(rows, 'sync_frame_median'):.3f} |")
 
 
 if __name__ == "__main__":

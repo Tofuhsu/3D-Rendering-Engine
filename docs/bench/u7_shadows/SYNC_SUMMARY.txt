@@ -1,0 +1,14 @@
+Synchronous timing (glFinish around each pass), median of per-run medians over 3 runs x 1000 frames, ms.
+Each bracket includes a fixed glFinish round trip; compare differences between rows.
+
+config                  shadow    mesh  lights   frame
+Campus-1024-pcf3         0.181   0.267   0.130   1.124
+Campus-2048-pcf1         0.207   0.233   0.131   1.115
+Campus-2048-pcf3         0.208   0.262   0.131   1.149
+Campus-2048-pcf5         0.206   0.336   0.132   1.226
+Campus-4096-pcf3         0.364   0.292   0.138   1.367
+Campus-off               0.000   0.233   0.130   0.903
+SportsCar-1024-pcf3      0.833   1.030   0.202   2.792
+SportsCar-2048-pcf3      0.833   1.049   0.203   2.791
+SportsCar-4096-pcf3      1.056   1.140   0.199   3.125
+SportsCar-off            0.000   0.986   0.196   1.850

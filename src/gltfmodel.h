@@ -19,6 +19,8 @@ public:
 	// Draw every material group. Texture units 4..7 are used for the material maps
 	// (0..3 belong to the base-colour map and IBL). Returns triangles drawn per call.
 	void Draw(ShaderProg& shader, std::vector<long long>& trianglesPerDraw);
+	// Geometry only, with whatever program is bound (shadow depth pass).
+	void DrawGeometryOnly(std::vector<long long>& trianglesPerDraw) const;
 
 	int GetNumVertices() const { return numVertices; }
 	int GetNumTriangles() const { return numTriangles; }

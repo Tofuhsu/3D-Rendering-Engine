@@ -1,0 +1,110 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 163634
+# Triangles: 300603
+# Face corners: 611363 (positions 163590, texcoords 0, normals 131321)
+Total 38 subMeshes loaded
+SubMesh 0 with material: Interior_Black
+Num. triangles in the subMesh: 14525
+SubMesh 1 with material: Interior_GlossBlack
+Num. triangles in the subMesh: 2534
+SubMesh 2 with material: Interior_Monitor
+Num. triangles in the subMesh: 88
+SubMesh 3 with material: Interior_White
+Num. triangles in the subMesh: 382
+SubMesh 4 with material: GomBlack
+Num. triangles in the subMesh: 3144
+SubMesh 5 with material: EngineSilver2
+Num. triangles in the subMesh: 39218
+SubMesh 6 with material: Interior_Silver
+Num. triangles in the subMesh: 4152
+SubMesh 7 with material: Interior_Red
+Num. triangles in the subMesh: 1548
+SubMesh 8 with material: BodyGlossBlackMat
+Num. triangles in the subMesh: 3306
+SubMesh 9 with material: SeatColor
+Num. triangles in the subMesh: 2508
+SubMesh 10 with material: Seat_Black
+Num. triangles in the subMesh: 1760
+SubMesh 11 with material: PedalsSilver_mat
+Num. triangles in the subMesh: 1204
+SubMesh 12 with material: LightReflectMat
+Num. triangles in the subMesh: 4856
+SubMesh 13 with material: HeadLightBK_Mat
+Num. triangles in the subMesh: 338
+SubMesh 14 with material: HeadLight_LED
+Num. triangles in the subMesh: 128
+SubMesh 15 with material: StopLightBK_Mat
+Num. triangles in the subMesh: 710
+SubMesh 16 with material: GlassMat
+Num. triangles in the subMesh: 474
+SubMesh 17 with material: RearLights
+Num. triangles in the subMesh: 864
+SubMesh 18 with material: RedMat
+Num. triangles in the subMesh: 1464
+SubMesh 19 with material: CarbonBlack
+Num. triangles in the subMesh: 11042
+SubMesh 20 with material: BodyMat
+Num. triangles in the subMesh: 17275
+SubMesh 21 with material: BodyMat_BK
+Num. triangles in the subMesh: 2305
+SubMesh 22 with material: MirrorMat
+Num. triangles in the subMesh: 16
+SubMesh 23 with material: TireMat
+Num. triangles in the subMesh: 61176
+SubMesh 24 with material: SusArm_Silver2
+Num. triangles in the subMesh: 14778
+SubMesh 25 with material: BoltSilver
+Num. triangles in the subMesh: 21754
+SubMesh 26 with material: Suspention_Red
+Num. triangles in the subMesh: 4408
+SubMesh 27 with material: SmallHeadLights
+Num. triangles in the subMesh: 1080
+SubMesh 28 with material: Winker_Mat
+Num. triangles in the subMesh: 472
+SubMesh 29 with material: SpotLightCover_Mat
+Num. triangles in the subMesh: 560
+SubMesh 30 with material: MeshBlack
+Num. triangles in the subMesh: 4688
+SubMesh 31 with material: Chassis_Black
+Num. triangles in the subMesh: 10380
+SubMesh 32 with material: Suspention_Black
+Num. triangles in the subMesh: 10250
+SubMesh 33 with material: BrakeRotarySilver
+Num. triangles in the subMesh: 43392
+SubMesh 34 with material: WheelHubColor
+Num. triangles in the subMesh: 7200
+SubMesh 35 with material: WindowGlassMat
+Num. triangles in the subMesh: 340
+SubMesh 36 with material: CamCover
+Num. triangles in the subMesh: 3724
+SubMesh 37 with material: suspension_red
+Num. triangles in the subMesh: 2560
+Model Center: 0, 0.54195, -0.0475999
+Model Extent: 2.2802 x 1.0911 x 4.5672
+Load: MTL+textures 0.1 ms, OBJ parse 85.6 ms, GPU upload 0.6 ms
+UNSUPPORTED (log once): POSSIBLE ISSUE: unit 0 GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type (Float) - using zero texture because texture unloadable
+
+=== Benchmark ===
+model: assets/third_party/sports_car/sportsCar.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100 | timing: synchronous (glFinish per pass)
+load: MTL+textures 0.1 ms, OBJ parse 85.6 ms, GPU upload 0.6 ms
+shading: Phong
+shadows: on, map 2048x2048, PCF 3x3
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           3.970    3.180    5.583    2.542   10.687
+  cpu_render          2.813    2.778    3.114    2.384    4.274
+  gpu_shadow          0.551    0.546    0.613    0.416    0.763
+  gpu_mesh            0.858    0.846    0.994    0.682    2.434
+  gpu_lights          0.116    0.096    0.153    0.074    1.367
+  gpu_skybox          0.219    0.203    0.264    0.177    1.534
+  gpu_total           1.744    1.709    1.891    1.495    3.312
+  sync_shadow         0.839    0.832    0.931    0.717    1.113
+  sync_mesh           1.057    1.048    1.188    0.840    2.628
+  sync_lights         0.222    0.200    0.297    0.145    1.484
+  sync_skybox         0.323    0.305    0.389    0.265    1.640
+  sync_frame          2.813    2.778    3.114    2.384    4.274
+  draw calls/frame: 79, triangles/frame: 602502
+CSV: docs/bench/u7_shadows/SportsCar-2048-pcf3_run3.csv

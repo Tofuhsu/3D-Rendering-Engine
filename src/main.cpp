@@ -12,6 +12,7 @@
 #include "profiler.h"
 #include "ibl.h"
 #include "gltfmodel.h"
+#include "shadowmap.h"
 
 #include <algorithm>
 #include <chrono>
@@ -146,6 +147,17 @@ bool IsGltfPath(const std::string& path)
     return endsWith(".gltf") || endsWith(".glb");
 }
 void SetPbrFrameUniforms(const glm::mat4& normalMatrix, const glm::mat4& MVP);
+// --shadows on: directional-light shadow map (--shadow-size N, --pcf 1|3|5).
+bool shadowsEnabled = false;
+// --sync-timing on: glFinish around each pass (see FrameProfiler::SetSynchronous).
+bool syncTiming = false;
+int shadowMapSize = 2048;
+int pcfKernel = 3;
+ShadowMap* shadowMap = nullptr;
+// Models are normalized to a unit box and scaled by 1.5, so a sphere of this
+// radius around the origin contains them at any rotation.
+const float kSceneRadius = 1.5f * 0.8661f;
+void SetShadowUniforms(ShaderProg& p);
 void DrawGltfPBR(const glm::mat4& normalMatrix, const glm::mat4& MVP);
 ShaderProg* pbrShader = nullptr;
 void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::mat4& MVP);
@@ -208,6 +220,10 @@ void ReleaseResources()
         delete gltfModel;
         gltfModel = nullptr;
     }
+    if (shadowMap != nullptr) {
+        delete shadowMap;
+        shadowMap = nullptr;
+    }
     if (pbrShader != nullptr) {
         delete pbrShader;
         pbrShader = nullptr;
@@ -254,6 +270,24 @@ void RenderSceneCB()
         glm::mat4x4 normalMatrix = glm::transpose(glm::inverse(sceneObj.worldMatrix));
         glm::mat4x4 MVP = camera->GetProjMatrix() * camera->GetViewMatrix() * sceneObj.worldMatrix;
 
+        // Shadow pass: depth from the directional light into the shadow map.
+        if (shadowMap != nullptr) {
+            profiler->BeginPass(PASS_SHADOW);
+            shadowMap->Begin(dirLight->GetDirection(), glm::vec3(0.0f), kSceneRadius);
+            ShaderProg& depth = shadowMap->GetDepthShader();
+            glm::mat4 lightMVP = shadowMap->GetLightViewProj() * sceneObj.worldMatrix;
+            glUniformMatrix4fv(depth.Uniform("lightMVP"), 1, GL_FALSE, glm::value_ptr(lightMVP));
+            std::vector<long long> trianglesPerDraw;
+            if (gltfModel != nullptr)
+                gltfModel->DrawGeometryOnly(trianglesPerDraw);
+            else
+                pMesh->DrawGeometryOnly(trianglesPerDraw);
+            for (long long t : trianglesPerDraw)
+                profiler->CountDraw(t);
+            shadowMap->End(screenWidth, screenHeight);
+            profiler->EndPass(PASS_SHADOW);
+        }
+
         profiler->BeginPass(PASS_MESH);
         if (gltfModel != nullptr) {
             DrawGltfPBR(normalMatrix, MVP);
@@ -282,7 +316,8 @@ void RenderSceneCB()
             glUniform1f(phongShadingShader->GetLocspotLightCutoffStartInDegree(), spotLight->GetCutoffStartInDegree());
             glUniform1f(phongShadingShader->GetLocspotLightTotalWidthInDegree(), spotLight->GetTotalWidthInDegree());
             glUniform1i(phongShadingShader->GetLocmapKd(), 0);
-            // The skybox panorama doubles as the environment map (texture unit 1).
+            SetShadowUniforms(*phongShadingShader);
+        // The skybox panorama doubles as the environment map (texture unit 1).
             glUniform1i(phongShadingShader->GetLocEnvMap(), 1);
             if (skybox != nullptr)
                 skybox->GetTexture()->Bind(GL_TEXTURE1);
@@ -405,9 +440,27 @@ void RenderSceneCB()
     }
 }
 
+void SetShadowUniforms(ShaderProg& p)
+{
+    // Unit 8 always holds the shadow map (or nothing when shadows are off; the
+    // shader then returns before sampling it).
+    glUniform1i(p.Uniform("shadowMap"), 8);
+    glUniform1i(p.Uniform("shadowsEnabled"), shadowMap != nullptr ? 1 : 0);
+    if (shadowMap == nullptr)
+        return;
+    glUniformMatrix4fv(p.Uniform("lightViewProj"), 1, GL_FALSE, glm::value_ptr(shadowMap->GetLightViewProj()));
+    glUniform1i(p.Uniform("pcfRadius"), pcfKernel / 2);
+    glUniform1f(p.Uniform("shadowTexelSize"), 1.0f / (float)shadowMap->GetSize());
+    glUniform1f(p.Uniform("shadowNormalOffset"), 1.5f * shadowMap->GetTexelWorldSize());
+    glActiveTexture(GL_TEXTURE8);
+    glBindTexture(GL_TEXTURE_2D, shadowMap->GetTexture());
+    glActiveTexture(GL_TEXTURE0);
+}
+
 void SetPbrFrameUniforms(const glm::mat4& normalMatrix, const glm::mat4& MVP)
 {
     ShaderProg& p = *pbrShader;
+    SetShadowUniforms(p);
     glUniformMatrix4fv(p.Uniform("worldMatrix"), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
     glUniformMatrix4fv(p.Uniform("normalMatrix"), 1, GL_FALSE, glm::value_ptr(normalMatrix));
     glUniformMatrix4fv(p.Uniform("MVP"), 1, GL_FALSE, glm::value_ptr(MVP));
@@ -499,7 +552,8 @@ void FinishBenchmark()
               << "renderer: " << glGetString(GL_RENDERER) << " | " << glGetString(GL_VERSION) << "\n"
               << "viewport: " << viewport[2] << "x" << viewport[3]
               << " | vsync: " << (vsyncEnabled ? "on" : "off")
-              << " | warm-up frames: " << benchWarmupFrames << "\n"
+              << " | warm-up frames: " << benchWarmupFrames
+              << " | timing: " << (syncTiming ? "synchronous (glFinish per pass)" : "timer queries") << "\n"
               << std::fixed << std::setprecision(1)
               << (gltfModel ? "load: images " : "load: MTL+textures ") << loadMtlMs
               << (gltfModel ? " ms, glTF parse " : " ms, OBJ parse ") << loadObjMs
@@ -513,6 +567,11 @@ void FinishBenchmark()
     } else {
         std::cout << "shading: Phong\n";
     }
+    if (shadowMap != nullptr)
+        std::cout << "shadows: on, map " << shadowMapSize << "x" << shadowMapSize << ", PCF "
+                  << pcfKernel << "x" << pcfKernel << "\n";
+    else
+        std::cout << "shadows: off\n";
     PrintBenchSummary(std::cout, samples);
     if (WriteBenchCsv(benchCsvPath, samples))
         std::cout << "CSV: " << benchCsvPath << std::endl;
@@ -733,9 +792,14 @@ int main(int argc, char** argv)
         else if (arg == "--camera")    std::sscanf(value.c_str(), "%f,%f,%f", &cameraPos.x, &cameraPos.y, &cameraPos.z);
         else if (arg == "--target")    std::sscanf(value.c_str(), "%f,%f,%f", &cameraTarget.x, &cameraTarget.y, &cameraTarget.z);
         else if (arg == "--light-dir") std::sscanf(value.c_str(), "%f,%f,%f", &dirLightDirection.x, &dirLightDirection.y, &dirLightDirection.z);
+        else if (arg == "--light-color") std::sscanf(value.c_str(), "%f,%f,%f", &dirLightRadiance.x, &dirLightRadiance.y, &dirLightRadiance.z);
         else if (arg == "--reflect")   reflectOverride = std::min(1.0f, (float)std::atof(value.c_str()));
         else if (arg == "--skybox")    skyboxFilePath = value;
         else if (arg == "--shading")   usePbr = (value == "pbr");
+        else if (arg == "--shadows")   shadowsEnabled = (value == "on");
+        else if (arg == "--sync-timing") syncTiming = (value == "on");
+        else if (arg == "--shadow-size") shadowMapSize = std::max(64, std::min(8192, std::atoi(value.c_str())));
+        else if (arg == "--pcf")       pcfKernel = std::max(1, std::min(5, std::atoi(value.c_str()) | 1));
         else if (arg == "--env")       environmentFilePath = value;
         else if (arg == "--exposure")  exposure = (float)std::atof(value.c_str());
         else if (arg == "--ibl-intensity") iblIntensity = (float)std::atof(value.c_str());
@@ -796,6 +860,7 @@ int main(int argc, char** argv)
 
     glfwSwapInterval(vsyncEnabled ? 1 : 0);
     profiler = new FrameProfiler();
+    profiler->SetSynchronous(syncTiming);
     lastTitleUpdate = std::chrono::steady_clock::now();
 
     // Initialization.
@@ -820,6 +885,8 @@ int main(int argc, char** argv)
         CreateSkybox(skyboxFilePath);
     }
     CreateShaderLib();
+    if (shadowsEnabled)
+        shadowMap = new ShadowMap(shadowMapSize);
 
     glfwSetFramebufferSizeCallback(window, FramebufferSizeCB);
     glfwSetKeyCallback(window, KeyCB);

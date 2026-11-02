@@ -29,6 +29,7 @@ FrameProfiler::~FrameProfiler()
 const char* FrameProfiler::PassName(int pass)
 {
 	switch (pass) {
+	case PASS_SHADOW: return "shadow";
 	case PASS_MESH:   return "mesh";
 	case PASS_LIGHTS: return "lights";
 	case PASS_SKYBOX: return "skybox";
@@ -52,24 +53,37 @@ void FrameProfiler::BeginFrame()
 
 	current = FrameSample();
 	current.frame = frameIndex;
+	if (synchronous)
+		glFinish();	// start from an idle GPU
 }
 
 void FrameProfiler::BeginPass(ProfilePass pass)
 {
 	Slot& slot = slots[frameIndex % kLatency];
+	if (synchronous) {
+		glFinish();
+		passStart = Clock::now();
+	}
 	glBeginQuery(GL_TIME_ELAPSED, slot.queries[pass]);
 	slot.used[pass] = true;
 }
 
 void FrameProfiler::EndPass(ProfilePass pass)
 {
-	(void)pass;
 	glEndQuery(GL_TIME_ELAPSED);
+	if (synchronous) {
+		glFinish();
+		current.syncPassMs[pass] += MsBetween(passStart, Clock::now());
+	}
 }
 
 void FrameProfiler::EndFrame()
 {
 	Slot& slot = slots[frameIndex % kLatency];
+	if (synchronous) {
+		glFinish();
+		current.syncFrameMs = MsBetween(frameStart, Clock::now());
+	}
 	current.cpuRenderMs = MsBetween(frameStart, Clock::now());
 	slot.sample = current;
 	slot.pending = true;
@@ -133,13 +147,19 @@ bool WriteBenchCsv(const std::string& path, const std::vector<FrameSample>& samp
 	ofs << "frame,cpu_frame_ms,cpu_render_ms";
 	for (int p = 0; p < NUM_PROFILE_PASSES; ++p)
 		ofs << ",gpu_" << FrameProfiler::PassName(p) << "_ms";
-	ofs << ",gpu_total_ms,draw_calls,triangles\n";
+	ofs << ",gpu_total_ms";
+	for (int p = 0; p < NUM_PROFILE_PASSES; ++p)
+		ofs << ",sync_" << FrameProfiler::PassName(p) << "_ms";
+	ofs << ",sync_frame_ms,draw_calls,triangles\n";
 	ofs << std::fixed << std::setprecision(4);
 	for (const FrameSample& s : samples) {
 		ofs << s.frame << "," << s.cpuFrameMs << "," << s.cpuRenderMs;
 		for (int p = 0; p < NUM_PROFILE_PASSES; ++p)
 			ofs << "," << s.gpuPassMs[p];
-		ofs << "," << s.gpuTotalMs << "," << s.drawCalls << "," << s.triangles << "\n";
+		ofs << "," << s.gpuTotalMs;
+		for (int p = 0; p < NUM_PROFILE_PASSES; ++p)
+			ofs << "," << s.syncPassMs[p];
+		ofs << "," << s.syncFrameMs << "," << s.drawCalls << "," << s.triangles << "\n";
 	}
 	return true;
 }
@@ -166,6 +186,11 @@ void PrintBenchSummary(std::ostream& os, const std::vector<FrameSample>& samples
 	for (int p = 0; p < NUM_PROFILE_PASSES; ++p)
 		row(std::string("gpu_") + FrameProfiler::PassName(p), column([p](const FrameSample& s) { return s.gpuPassMs[p]; }));
 	row("gpu_total", column([](const FrameSample& s) { return s.gpuTotalMs; }));
+	if (!samples.empty() && samples.back().syncFrameMs > 0.0) {
+		for (int p = 0; p < NUM_PROFILE_PASSES; ++p)
+			row(std::string("sync_") + FrameProfiler::PassName(p), column([p](const FrameSample& s) { return s.syncPassMs[p]; }));
+		row("sync_frame", column([](const FrameSample& s) { return s.syncFrameMs; }));
+	}
 	if (!samples.empty())
 		os << "  draw calls/frame: " << samples.back().drawCalls
 		   << ", triangles/frame: " << samples.back().triangles << "\n";

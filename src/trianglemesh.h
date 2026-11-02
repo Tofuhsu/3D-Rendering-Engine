@@ -48,6 +48,9 @@ public:
 	const SubMesh& GetSubMeshesPosition(const int i) const { return subMeshes[i]; }
 	void CreateVertexBuffer();
 	void CreateSubmeshBuffer();
+	// Draw every sub-mesh with whatever program is bound (shadow depth pass).
+	// Appends the triangles of each draw call.
+	void DrawGeometryOnly(std::vector<long long>& trianglesPerDraw) const;
 
 	glm::vec3 GetObjCenter() const { return objCenter; }
 	glm::vec3 GetObjExtent() const { return objExtent; }

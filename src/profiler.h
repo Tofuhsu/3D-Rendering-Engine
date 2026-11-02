@@ -9,7 +9,8 @@
 // queries cannot nest), so the order here is the order they are issued.
 enum ProfilePass
 {
-	PASS_MESH = 0,
+	PASS_SHADOW = 0,
+	PASS_MESH,
 	PASS_LIGHTS,
 	PASS_SKYBOX,
 	NUM_PROFILE_PASSES
@@ -23,6 +24,10 @@ struct FrameSample
 	double cpuRenderMs = 0.0;	// CPU time spent issuing GL calls for this frame (before swap)
 	std::array<double, NUM_PROFILE_PASSES> gpuPassMs{};
 	double gpuTotalMs = 0.0;
+	// Synchronous mode only: wall time of each pass bracketed by glFinish, and
+	// of the whole frame including GPU completion. 0 when not measured.
+	std::array<double, NUM_PROFILE_PASSES> syncPassMs{};
+	double syncFrameMs = 0.0;
 	int drawCalls = 0;
 	long long triangles = 0;
 };
@@ -49,6 +54,12 @@ public:
 
 	static const char* PassName(int pass);
 
+	// Synchronous timing: glFinish around every pass and at the end of the frame.
+	// Slower, but the numbers do not depend on how the driver attributes GPU work
+	// to timer queries (unreliable per pass on tile-based GPUs).
+	void SetSynchronous(bool on) { synchronous = on; }
+	bool IsSynchronous() const { return synchronous; }
+
 private:
 	using Clock = std::chrono::steady_clock;
 	static const int kLatency = 4;
@@ -68,6 +79,8 @@ private:
 	FrameSample current;
 	int frameIndex;
 	Clock::time_point frameStart;
+	Clock::time_point passStart;
+	bool synchronous = false;
 	Clock::time_point lastFrameStart;
 	bool hasLastFrame;
 };

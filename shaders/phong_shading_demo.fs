@@ -34,6 +34,14 @@ uniform float quadratic;
 uniform float spotLightCutoffStartInDegree;
 uniform float spotLightTotalWidthInDegree;
 
+// Directional-light shadow map (texture unit 8).
+uniform sampler2DShadow shadowMap;
+uniform mat4 lightViewProj;
+uniform bool shadowsEnabled;
+uniform int pcfRadius;			// 0: 1 tap, 1: 3x3, 2: 5x5 (each tap is a 2x2 bilinear compare)
+uniform float shadowTexelSize;	// 1 / map size
+uniform float shadowNormalOffset;	// world units, ~1.5 shadow texels
+
 out vec4 FragColor;
 
 // Diffuse + specular (Phong) for one light arriving from direction L with radiance.
@@ -58,6 +66,26 @@ vec3 SampleEnvironment(vec3 d)
     return textureLod(envMap, vec2(u, v), 0.0).rgb;
 }
 
+// Fraction of the directional light that reaches this point (1 = fully lit).
+float DirectionalShadow(vec3 N, vec3 L)
+{
+    if (!shadowsEnabled)
+        return 1.0;
+    // Normal-offset and slope-scaled bias against shadow acne.
+    float NdotL = clamp(dot(N, L), 0.0, 1.0);
+    vec4 p = lightViewProj * vec4(iPosWorld + N * shadowNormalOffset * (1.0 - NdotL), 1.0);
+    vec3 c = p.xyz / p.w * 0.5 + 0.5;
+    if (c.z > 1.0)
+        return 1.0;
+    float bias = mix(0.0015, 0.0003, NdotL);
+    float lit = 0.0;
+    for (int y = -pcfRadius; y <= pcfRadius; ++y)
+        for (int x = -pcfRadius; x <= pcfRadius; ++x)
+            lit += texture(shadowMap, vec3(c.xy + vec2(x, y) * shadowTexelSize, c.z - bias));
+    float taps = float((2 * pcfRadius + 1) * (2 * pcfRadius + 1));
+    return lit / taps;
+}
+
 float Attenuation(float d)
 {
     return 1.0 / (constant + linear * d + quadratic * d * d);
@@ -74,8 +102,9 @@ void main()
 
     vec3 color = ambientLight * Ka * texel.rgb;
 
-    // Directional light.
-    color += Phong(N, V, normalize(-dirLightDir), dirLightRadiance, diffuseColor);
+    // Directional light (the only shadow caster).
+    vec3 Ld = normalize(-dirLightDir);
+    color += Phong(N, V, Ld, dirLightRadiance * DirectionalShadow(N, Ld), diffuseColor);
 
     // Point light.
     vec3 toPoint = pointLightPos - iPosWorld;

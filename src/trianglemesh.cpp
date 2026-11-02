@@ -123,6 +123,17 @@ void TriangleMesh::CreateSubmeshBuffer() {
 }
 
 
+void TriangleMesh::DrawGeometryOnly(std::vector<long long>& trianglesPerDraw) const
+{
+	for (const SubMesh& sub : subMeshes) {
+		if (sub.vaoId == 0) continue;
+		glBindVertexArray(sub.vaoId);
+		glDrawElements(GL_TRIANGLES, (GLsizei)sub.vertexIndices.size(), GL_UNSIGNED_INT, 0);
+		trianglesPerDraw.push_back((long long)sub.vertexIndices.size() / 3);
+	}
+	glBindVertexArray(0);
+}
+
 // Show model information.
 void TriangleMesh::ShowInfo()
 {

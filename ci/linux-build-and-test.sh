@@ -78,3 +78,22 @@ xvfb-run -a -s "-screen 0 1024x768x24" \
 grep -q "glTF: 1 mesh nodes, 1 primitives (0 skipped), 1 materials, 1 images (0 failed)" /tmp/gltf.log
 grep -q "Live GL objects after release: 0 buffers, 0 textures, 0 vertex arrays, 0 programs, 0 framebuffers/renderbuffers" /tmp/gltf.log
 echo "glTF smoke test passed"
+
+# Shadow smoke test: the USC campus casts shadows on its ground plane, so the
+# frame with shadows must differ from the one without.
+for mode in off on; do
+  xvfb-run -a -s "-screen 0 1024x768x24" \
+    "$BUILD/engine" --model assets/third_party/usc_campus/usc_campus.obj --rotate 0 \
+    --camera 0.3,1.5,2.1 --target 0,0,0.1 --light-dir -1,-0.55,-0.45 --light-color 1.6,1.5,1.3 \
+    --shadows "$mode" --capture "/tmp/shadows_$mode.ppm" | tee "/tmp/shadows_$mode.log"
+  grep -q "Live GL objects after release: 0 buffers, 0 textures, 0 vertex arrays, 0 programs, 0 framebuffers/renderbuffers" "/tmp/shadows_$mode.log"
+done
+python3 - /tmp/shadows_off.ppm /tmp/shadows_on.ppm <<'PY'
+import sys
+a = open(sys.argv[1], "rb").read().split(b"\n", 3)[3]
+b = open(sys.argv[2], "rb").read().split(b"\n", 3)[3]
+darker = sum(1 for i in range(0, len(a), 3) if sum(b[i:i + 3]) + 30 < sum(a[i:i + 3]))
+print(f"shadows: {darker} pixels darker with shadows on")
+sys.exit(0 if darker > 2000 else 1)
+PY
+echo "shadow smoke test passed"
