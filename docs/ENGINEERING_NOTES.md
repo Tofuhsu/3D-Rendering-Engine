@@ -24,7 +24,7 @@ Commit subjects carry a short tag for each step:
 
 ## 1. Correctness first (U1)
 
-The 2023 code compiled only in Visual Studio and ran in a compatibility context, which
+The 2022 code compiled only in Visual Studio and ran in a compatibility context, which
 hid several bugs. Fixed before adding anything:
 
 - No VAO was ever created. Each sub-mesh now owns a VAO that records the VBO layout
