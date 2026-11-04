@@ -1,0 +1,12 @@
+# quad, v/vt, negative indices, CRLF
+mtllib quad.mtl
+v -1 -1 0
+v 1 -1 0
+v 1 1 0
+v -1 1 0
+vt 0 0
+vt 1 0
+vt 1 1
+vt 0 1
+usemtl Paper
+f -4/-4 -3/-3 -2/-2 -1/-1

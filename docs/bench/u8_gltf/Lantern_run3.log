@@ -1,0 +1,25 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 4145
+# Triangles: 5394
+glTF: 3 mesh nodes, 3 primitives (0 skipped), 1 materials, 4 images (0 failed), generated tangents for 0 vertices, textures ~85 MiB
+Load: glTF parse 0.2 ms, images 121.3 ms, GPU upload 26.1 ms
+IBL precompute: 116.3 ms (HDR load 21.9, cubemap 4.0, irradiance 38.9, prefilter 46.8, BRDF LUT 4.7)
+UNSUPPORTED (log once): POSSIBLE ISSUE: unit 6 GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type (Float) - using zero texture because texture unloadable
+
+=== Benchmark ===
+model: assets/third_party/gltf/Lantern.glb
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: images 121.3 ms, glTF parse 0.2 ms, GPU upload 26.1 ms
+shading: PBR + IBL (assets/third_party/hdri/studio_small_08_2k.hdr), precompute 116.3 ms: HDR load 21.9, cubemap 4.0, irradiance 38.9, prefilter 46.8, BRDF LUT 4.7
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.482    0.301    2.778    0.228    7.926
+  cpu_render          0.178    0.164    0.259    0.119    0.470
+  gpu_mesh            0.009    0.000    0.043    0.000    0.119
+  gpu_lights          0.004    0.000    0.023    0.000    0.106
+  gpu_skybox          0.035    0.032    0.079    0.000    0.156
+  gpu_total           0.048    0.040    0.118    0.000    0.214
+  draw calls/frame: 4, triangles/frame: 5406
+CSV: docs/bench/u8_gltf/Lantern_run3.csv

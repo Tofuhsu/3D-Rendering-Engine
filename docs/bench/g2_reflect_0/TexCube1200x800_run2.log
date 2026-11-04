@@ -1,0 +1,27 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 24
+# Triangles: 12
+# Face corners: 36 (positions 8, texcoords 4, normals 6)
+Total 1 subMeshes loaded
+SubMesh 0 with material: cubeMtl
+Num. triangles in the subMesh: 12
+Model Center: 0, 0, 4.76837e-07
+Model Extent: 2 x 2 x 2
+Load: MTL+textures 6.4 ms, OBJ parse 0.1 ms, GPU upload 0.1 ms
+
+=== Benchmark ===
+model: assets/TexCube/TexCube.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 1200x800 | vsync: off | warm-up frames: 100
+load: MTL+textures 6.4 ms, OBJ parse 0.1 ms, GPU upload 0.1 ms
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.733    0.364    4.085    0.232   24.919
+  cpu_render          0.204    0.180    0.328    0.129    0.519
+  gpu_mesh            0.020    0.010    0.055    0.000    0.478
+  gpu_lights          0.005    0.000    0.024    0.000    0.151
+  gpu_skybox          0.068    0.067    0.119    0.000    0.208
+  gpu_total           0.094    0.086    0.171    0.000    0.579
+  draw calls/frame: 4, triangles/frame: 1308
+CSV: docs/bench/g2_reflect_0/TexCube1200x800_run2.csv

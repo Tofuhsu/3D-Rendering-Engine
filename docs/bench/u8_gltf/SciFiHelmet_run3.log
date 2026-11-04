@@ -1,0 +1,25 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 70074
+# Triangles: 23358
+glTF: 1 mesh nodes, 1 primitives (0 skipped), 1 materials, 4 images (0 failed), generated tangents for 0 vertices, textures ~85 MiB
+Load: glTF parse 2.0 ms, images 276.6 ms, GPU upload 23.6 ms
+IBL precompute: 116.3 ms (HDR load 21.9, cubemap 2.6, irradiance 39.9, prefilter 47.2, BRDF LUT 4.7)
+UNSUPPORTED (log once): POSSIBLE ISSUE: unit 7 GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type (Float) - using zero texture because texture unloadable
+
+=== Benchmark ===
+model: assets/third_party/gltf/SciFiHelmet/SciFiHelmet.gltf
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: images 276.6 ms, glTF parse 2.0 ms, GPU upload 23.6 ms
+shading: PBR + IBL (assets/third_party/hdri/studio_small_08_2k.hdr), precompute 116.3 ms: HDR load 21.9, cubemap 2.6, irradiance 39.9, prefilter 47.2, BRDF LUT 4.7
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.535    0.352    2.789    0.231   11.055
+  cpu_render          0.198    0.193    0.271    0.128    0.666
+  gpu_mesh            0.117    0.112    0.189    0.000    0.406
+  gpu_lights          0.000    0.000    0.000    0.000    0.000
+  gpu_skybox          0.002    0.000    0.009    0.000    0.153
+  gpu_total           0.119    0.114    0.191    0.000    0.406
+  draw calls/frame: 4, triangles/frame: 23370
+CSV: docs/bench/u8_gltf/SciFiHelmet_run3.csv

@@ -38,6 +38,7 @@ public:
 	
 	ImageTexture* GetTexture() { return panorama; };
 	float GetRotation() const  { return rotationY; }
+	int GetNumTriangles() const { return (int)indices.size() / 3; }
 
 private:
 	// Skybox Private Methods.
@@ -45,6 +46,7 @@ private:
 					std::vector<VertexPT>& vertices, std::vector<unsigned int>& indices);
 
 	// Skybox Private Data.
+	GLuint vaoId;
 	GLuint vboId;
 	GLuint iboId;
 	std::vector<VertexPT> vertices;

@@ -12,7 +12,6 @@ public:
 	~ImageTexture();
 
 	void Bind(GLenum textureUnit);
-	void Preview();
 	std::string GetPath() const { return texFilePath; }
 
 private:
@@ -21,8 +20,7 @@ private:
 	GLuint textureObj;
 	int imageWidth;
 	int imageHeight;
-	int numChannels;
-	cv::Mat texImage;
+	int numChannels;	// channels in the file (uploaded as RGBA)
 };
 
 #endif

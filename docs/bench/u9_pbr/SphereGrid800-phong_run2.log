@@ -1,0 +1,77 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 13975
+# Triangles: 24000
+# Face corners: 72000 (positions 14025, texcoords 0, normals 14025)
+Total 25 subMeshes loaded
+SubMesh 0 with material: m0.00_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 1 with material: m0.00_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 2 with material: m0.00_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 3 with material: m0.00_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 4 with material: m0.00_r1.00
+Num. triangles in the subMesh: 960
+SubMesh 5 with material: m0.25_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 6 with material: m0.25_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 7 with material: m0.25_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 8 with material: m0.25_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 9 with material: m0.25_r1.00
+Num. triangles in the subMesh: 960
+SubMesh 10 with material: m0.50_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 11 with material: m0.50_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 12 with material: m0.50_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 13 with material: m0.50_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 14 with material: m0.50_r1.00
+Num. triangles in the subMesh: 960
+SubMesh 15 with material: m0.75_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 16 with material: m0.75_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 17 with material: m0.75_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 18 with material: m0.75_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 19 with material: m0.75_r1.00
+Num. triangles in the subMesh: 960
+SubMesh 20 with material: m1.00_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 21 with material: m1.00_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 22 with material: m1.00_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 23 with material: m1.00_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 24 with material: m1.00_r1.00
+Num. triangles in the subMesh: 960
+Model Center: 0, 0, 0
+Model Extent: 4.8 x 4.8 x 0.8
+Load: MTL+textures 0.1 ms, OBJ parse 8.8 ms, GPU upload 0.1 ms
+UNSUPPORTED (log once): POSSIBLE ISSUE: unit 0 GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type (Float) - using zero texture because texture unloadable
+
+=== Benchmark ===
+model: assets/generated/sphere_grid.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 800x800 | vsync: off | warm-up frames: 100
+load: MTL+textures 0.1 ms, OBJ parse 8.8 ms, GPU upload 0.1 ms
+shading: Phong
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.792    0.435    3.973    0.279   14.555
+  cpu_render          0.262    0.251    0.398    0.165    0.789
+  gpu_mesh            0.076    0.071    0.155    0.000    0.397
+  gpu_lights          0.001    0.000    0.000    0.000    0.258
+  gpu_skybox          0.084    0.077    0.140    0.000    0.297
+  gpu_total           0.161    0.156    0.260    0.004    0.812
+  draw calls/frame: 28, triangles/frame: 25296
+CSV: docs/bench/u9_pbr/SphereGrid800-phong_run2.csv

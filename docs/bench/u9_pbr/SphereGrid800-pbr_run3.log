@@ -1,0 +1,77 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 13975
+# Triangles: 24000
+# Face corners: 72000 (positions 14025, texcoords 0, normals 14025)
+Total 25 subMeshes loaded
+SubMesh 0 with material: m0.00_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 1 with material: m0.00_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 2 with material: m0.00_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 3 with material: m0.00_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 4 with material: m0.00_r1.00
+Num. triangles in the subMesh: 960
+SubMesh 5 with material: m0.25_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 6 with material: m0.25_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 7 with material: m0.25_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 8 with material: m0.25_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 9 with material: m0.25_r1.00
+Num. triangles in the subMesh: 960
+SubMesh 10 with material: m0.50_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 11 with material: m0.50_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 12 with material: m0.50_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 13 with material: m0.50_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 14 with material: m0.50_r1.00
+Num. triangles in the subMesh: 960
+SubMesh 15 with material: m0.75_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 16 with material: m0.75_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 17 with material: m0.75_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 18 with material: m0.75_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 19 with material: m0.75_r1.00
+Num. triangles in the subMesh: 960
+SubMesh 20 with material: m1.00_r0.05
+Num. triangles in the subMesh: 960
+SubMesh 21 with material: m1.00_r0.25
+Num. triangles in the subMesh: 960
+SubMesh 22 with material: m1.00_r0.50
+Num. triangles in the subMesh: 960
+SubMesh 23 with material: m1.00_r0.75
+Num. triangles in the subMesh: 960
+SubMesh 24 with material: m1.00_r1.00
+Num. triangles in the subMesh: 960
+Model Center: 0, 0, 0
+Model Extent: 4.8 x 4.8 x 0.8
+Load: MTL+textures 0.1 ms, OBJ parse 9.5 ms, GPU upload 0.1 ms
+IBL precompute: 126.3 ms (HDR load 30.3, cubemap 4.1, irradiance 39.0, prefilter 47.9, BRDF LUT 4.9)
+
+=== Benchmark ===
+model: assets/generated/sphere_grid.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 800x800 | vsync: off | warm-up frames: 100
+load: MTL+textures 0.1 ms, OBJ parse 9.5 ms, GPU upload 0.1 ms
+shading: PBR + IBL (assets/third_party/hdri/studio_small_08_2k.hdr), precompute 126.3 ms: HDR load 30.3, cubemap 4.1, irradiance 39.0, prefilter 47.9, BRDF LUT 4.9
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.893    0.476    4.155    0.301   15.947
+  cpu_render          0.289    0.277    0.434    0.173    0.961
+  gpu_mesh            0.114    0.114    0.189    0.000    0.292
+  gpu_lights          0.001    0.000    0.000    0.000    0.128
+  gpu_skybox          0.075    0.072    0.135    0.000    0.227
+  gpu_total           0.190    0.183    0.300    0.000    0.459
+  draw calls/frame: 28, triangles/frame: 24012
+CSV: docs/bench/u9_pbr/SphereGrid800-pbr_run3.csv

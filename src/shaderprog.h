@@ -3,6 +3,8 @@
 
 #include "headers.h"
 
+#include <unordered_map>
+
 // ShaderProg Declarations.
 class ShaderProg
 {
@@ -16,6 +18,8 @@ public:
 	void UnBind() { glUseProgram(0); };
 
 	GLint GetLocMVP() const { return locMVP; }
+	// Location of any uniform by name, looked up once and cached.
+	GLint Uniform(const std::string& name);
 
 protected:
 	// ShaderProg Protected Methods.
@@ -31,6 +35,7 @@ private:
 
 	// ShaderProg Private Data.
 	GLint locMVP;
+	std::unordered_map<std::string, GLint> uniformCache;
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -91,6 +96,9 @@ public:
 	// Add your methods for supporting textures.
 	// -------------------------------------------------------
 	GLint GetLocmapKd() const { return locMapKd; }
+	GLint GetLocHasMapKd() const { return locHasMapKd; }
+	GLint GetLocEnvMap() const { return locEnvMap; }
+	GLint GetLocReflectivity() const { return locReflectivity; }
 
 protected:
 	// PhongShadingDemoShaderProg Protected Methods.
@@ -131,6 +139,9 @@ private:
 	// -------------------------------------------------------
 
 	GLint locMapKd;
+	GLint locHasMapKd;
+	GLint locEnvMap;
+	GLint locReflectivity;
 };
 
 // ------------------------------------------------------------------------------------------------

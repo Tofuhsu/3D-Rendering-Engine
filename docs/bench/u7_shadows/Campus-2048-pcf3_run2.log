@@ -1,0 +1,46 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 16640
+# Triangles: 9684
+# Face corners: 22410 (positions 16640, texcoords 0, normals 2748)
+Total 6 subMeshes loaded
+SubMesh 0 with material: Academic
+Num. triangles in the subMesh: 6992
+SubMesh 1 with material: Other
+Num. triangles in the subMesh: 1026
+SubMesh 2 with material: Residential
+Num. triangles in the subMesh: 1382
+SubMesh 3 with material: Parking
+Num. triangles in the subMesh: 269
+SubMesh 4 with material: Religious
+Num. triangles in the subMesh: 13
+SubMesh 5 with material: Ground
+Num. triangles in the subMesh: 2
+Model Center: 0, 25.525, 0
+Model Extent: 1216.71 x 51.15 x 851.066
+Load: MTL+textures 0.0 ms, OBJ parse 3.7 ms, GPU upload 0.1 ms
+UNSUPPORTED (log once): POSSIBLE ISSUE: unit 0 GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type (Float) - using zero texture because texture unloadable
+
+=== Benchmark ===
+model: assets/third_party/usc_campus/usc_campus.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100 | timing: synchronous (glFinish per pass)
+load: MTL+textures 0.0 ms, OBJ parse 3.7 ms, GPU upload 0.1 ms
+shading: Phong
+shadows: on, map 2048x2048, PCF 3x3
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           1.691    1.306    3.103    1.113    4.737
+  cpu_render          1.198    1.149    1.488    0.867    2.668
+  gpu_shadow          0.012    0.011    0.024    0.000    0.129
+  gpu_mesh            0.175    0.173    0.199    0.108    0.263
+  gpu_lights          0.068    0.067    0.081    0.051    0.139
+  gpu_skybox          0.171    0.169    0.183    0.111    0.272
+  gpu_total           0.426    0.424    0.456    0.304    0.557
+  sync_shadow         0.212    0.208    0.249    0.160    0.417
+  sync_mesh           0.264    0.262    0.291    0.229    0.469
+  sync_lights         0.134    0.131    0.154    0.110    0.245
+  sync_skybox         0.251    0.250    0.274    0.182    0.449
+  sync_frame          1.198    1.149    1.488    0.866    2.668
+  draw calls/frame: 15, triangles/frame: 20664
+CSV: docs/bench/u7_shadows/Campus-2048-pcf3_run2.csv

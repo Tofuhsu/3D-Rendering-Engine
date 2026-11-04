@@ -1,0 +1,30 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 333536
+# Triangles: 166844
+Total 3 subMeshes loaded
+SubMesh 0 with material: phong1SG
+Num. triangles in the subMesh: 2640
+SubMesh 1 with material: phong2SG
+Num. triangles in the subMesh: 4176
+SubMesh 2 with material: phongE1SG
+Num. triangles in the subMesh: 160028
+Model Center: 0, 0, 0
+Model Extent: 0 x 0 x 0
+Load: MTL+textures 144.4 ms, OBJ parse 108.4 ms, GPU upload 0.8 ms
+
+=== Benchmark ===
+model: assets/Rose/Rose.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: MTL+textures 144.4 ms, OBJ parse 108.4 ms, GPU upload 0.8 ms
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.665    0.393    3.270    0.239   25.138
+  cpu_render          0.233    0.220    0.361    0.122    0.613
+  gpu_mesh            0.232    0.224    0.340    0.050    0.578
+  gpu_lights          0.001    0.000    0.000    0.000    0.070
+  gpu_skybox          0.002    0.000    0.005    0.000    0.104
+  gpu_total           0.235    0.226    0.349    0.050    0.602
+  draw calls/frame: 6, triangles/frame: 168140
+CSV: docs/bench/baseline/Rose_run3.csv

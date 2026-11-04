@@ -1,0 +1,33 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 4247
+# Triangles: 6476
+# Face corners: 19428 (positions 3423, texcoords 4247, normals 3340)
+Total 4 subMeshes loaded
+SubMesh 0 with material: Material_#46
+Num. triangles in the subMesh: 3352
+SubMesh 1 with material: Material_#47
+Num. triangles in the subMesh: 192
+SubMesh 2 with material: Material_#48
+Num. triangles in the subMesh: 1600
+SubMesh 3 with material: Material_#49
+Num. triangles in the subMesh: 1332
+Model Center: 0, 1.26955, -0.217165
+Model Extent: 3.30942 x 2.5391 x 3.30397
+Load: MTL+textures 8.3 ms, OBJ parse 2.6 ms, GPU upload 1.4 ms
+
+=== Benchmark ===
+model: assets/Ivysaur/Ivysaur.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: MTL+textures 8.3 ms, OBJ parse 2.6 ms, GPU upload 1.4 ms
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.708    0.408    3.447    0.253   24.616
+  cpu_render          0.233    0.220    0.361    0.136    0.664
+  gpu_mesh            0.031    0.018    0.102    0.000    0.314
+  gpu_lights          0.012    0.000    0.073    0.000    0.573
+  gpu_skybox          0.048    0.036    0.119    0.000    0.544
+  gpu_total           0.091    0.074    0.247    0.000    0.850
+  draw calls/frame: 7, triangles/frame: 7772
+CSV: docs/bench/u3_dedup/Ivysaur_run2.csv

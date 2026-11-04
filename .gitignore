@@ -5,3 +5,15 @@ x64/
 *.vcxproj
 *.user
 *.exe
+build/
+
+/bench/
+build-*/
+__pycache__/
+# Third-party assets fetched by tools/fetch_assets.sh (sources in assets/third_party/SOURCES.md)
+assets/third_party/_downloads/
+assets/third_party/sports_car/
+assets/third_party/gltf/
+assets/third_party/hdri/
+docs/UPGRADE_PLAN.md
+docs/drafts/

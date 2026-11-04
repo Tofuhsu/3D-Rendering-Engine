@@ -1,12 +1,13 @@
 #include "skybox.h"
 
+#include <cmath>
+
 Skybox::Skybox(const std::string& texImagePath, const int nSlices, const int nStacks, const float radius)
 {
 	rotationY = 0.0f;
 
 	// Load panorama.
 	panorama = new ImageTexture(texImagePath);
-	// panorama->Preview();
 
 	// Create material.
 	material = new SkyboxMaterial();
@@ -15,7 +16,9 @@ Skybox::Skybox(const std::string& texImagePath, const int nSlices, const int nSt
 	// Create sphere geometry.
 	CreateSphere3D(nSlices, nStacks, radius, vertices, indices);
 
-	// Create vertex buffer.
+	// Create vertex array, vertex buffer and index buffer.
+	glGenVertexArrays(1, &vaoId);
+	glBindVertexArray(vaoId);
 	glGenBuffers(1, &vboId);
     glBindBuffer(GL_ARRAY_BUFFER, vboId);
     glBufferData(GL_ARRAY_BUFFER, sizeof(VertexPT) * vertices.size(), &vertices[0], GL_STATIC_DRAW);
@@ -23,11 +26,17 @@ Skybox::Skybox(const std::string& texImagePath, const int nSlices, const int nSt
 	glGenBuffers(1, &iboId);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, iboId);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), &(indices[0]), GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexPT), (const GLvoid*)offsetof(VertexPT, position));
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(VertexPT), (const GLvoid*)offsetof(VertexPT, texcoord));
+	glBindVertexArray(0);
 }
 
 Skybox::~Skybox()
 {
 	vertices.clear();
+	glDeleteVertexArrays(1, &vaoId);
 	glDeleteBuffers(1, &vboId);
 	indices.clear();
 	glDeleteBuffers(1, &iboId);
@@ -44,13 +53,6 @@ Skybox::~Skybox()
 
 void Skybox::Render(Camera* camera, SkyboxShaderProg* shader)
 {
-	glEnableVertexAttribArray(0);
-	glEnableVertexAttribArray(1);
-
-	glBindBuffer(GL_ARRAY_BUFFER, vboId);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexPT), 0);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(VertexPT), (const GLvoid*)12);
-
 	shader->Bind();
 	
 	// Set transform.
@@ -66,13 +68,11 @@ void Skybox::Render(Camera* camera, SkyboxShaderProg* shader)
 	}
 
 	// Draw.
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, iboId);
+	glBindVertexArray(vaoId);
 	glDrawElements(GL_TRIANGLES, (GLsizei)(indices.size()), GL_UNSIGNED_INT, 0);
+	glBindVertexArray(0);
 
 	shader->UnBind();
-
-	glDisableVertexAttribArray(0);
-    glDisableVertexAttribArray(1);
 }
 
 void Skybox::CreateSphere3D(const int nSlices, const int nStacks, const float radius, 
@@ -93,9 +93,9 @@ void Skybox::CreateSphere3D(const int nSlices, const int nStacks, const float ra
 			// std::cout << glm::degrees<float>(phi) << " " << glm::degrees<float>(theta) << std::endl;
 			glm::vec2 uv = glm::vec2((float)p / (float)numPhi, (float)t / (float)numTheta);
 			// std::cout << uv.x << " " << uv.y << std::endl;
-			float x = radius * std::cosf(theta) * std::cosf(phi);
-			float y = radius * std::sinf(theta);
-			float z = radius * std::cosf(theta) * std::sinf(phi);
+			float x = radius * std::cos(theta) * std::cos(phi);
+			float y = radius * std::sin(theta);
+			float z = radius * std::cos(theta) * std::sin(phi);
 			
 			VertexPT vt = VertexPT(glm::vec3(x, y, z), uv);
 			vertices.push_back(vt);

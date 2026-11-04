@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Ubuntu 24.04 (build, tests, render smoke test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            build-essential cmake python3 \
+            libglm-dev libglew-dev libglfw3-dev libgl1-mesa-dri xvfb xauth
+      - name: Build, unit tests, render on Mesa llvmpipe
+        run: SRC="$GITHUB_WORKSPACE" BUILD="$RUNNER_TEMP/build" sh ci/linux-build-and-test.sh
+      - name: Loader tests and fuzzing (OBJ 60 s, glTF 60 s) under ASan + UBSan
+        run: |
+          cmake -S . -B "$RUNNER_TEMP/asan" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENGINE_SANITIZE=ON
+          cmake --build "$RUNNER_TEMP/asan" -j"$(nproc)" \
+            --target objloader_tests fuzz_objloader gltfloader_tests fuzz_gltfloader
+          "$RUNNER_TEMP/asan/objloader_tests"
+          "$RUNNER_TEMP/asan/gltfloader_tests"
+          "$RUNNER_TEMP/asan/fuzz_objloader" --seconds 60 --seed "$GITHUB_RUN_NUMBER" tests/corpus
+          "$RUNNER_TEMP/asan/fuzz_gltfloader" --seconds 60 --seed "$GITHUB_RUN_NUMBER" tests/corpus_gltf
+
+  macos:
+    # Hosted macOS runners are VMs without a usable OpenGL device, so this job
+    # builds everything and runs the tests but does not render.
+    name: macOS (build, tests)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Install dependencies
+        run: brew install glm
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(sysctl -n hw.ncpu)"
+      - name: Tests
+        run: ctest --test-dir build --output-on-failure

@@ -1,0 +1,24 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 14556
+# Triangles: 15452
+glTF: 1 mesh nodes, 1 primitives (0 skipped), 1 materials, 5 images (0 failed), generated tangents for 14556 vertices, textures ~106 MiB
+Load: glTF parse 0.5 ms, images 125.6 ms, GPU upload 38.2 ms
+IBL precompute: 120.7 ms (HDR load 23.8, cubemap 3.8, irradiance 37.8, prefilter 50.3, BRDF LUT 5.0)
+
+=== Benchmark ===
+model: assets/third_party/gltf/DamagedHelmet.glb
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: images 125.6 ms, glTF parse 0.5 ms, GPU upload 38.2 ms
+shading: PBR + IBL (assets/third_party/hdri/studio_small_08_2k.hdr), precompute 120.7 ms: HDR load 23.8, cubemap 3.8, irradiance 37.8, prefilter 50.3, BRDF LUT 5.0
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.550    0.315    3.260    0.236   12.582
+  cpu_render          0.183    0.170    0.265    0.129    0.473
+  gpu_mesh            0.053    0.047    0.112    0.000    0.205
+  gpu_lights          0.000    0.000    0.000    0.000    0.079
+  gpu_skybox          0.017    0.009    0.060    0.000    0.146
+  gpu_total           0.071    0.063    0.141    0.000    0.261
+  draw calls/frame: 4, triangles/frame: 15464
+CSV: docs/bench/u8_gltf/DamagedHelmet_run2.csv

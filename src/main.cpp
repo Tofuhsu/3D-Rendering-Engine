@@ -1,4 +1,6 @@
-﻿#include <Windows.h>
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 #include "headers.h"
 #include "trianglemesh.h"
@@ -7,6 +9,17 @@
 #include "light.h"
 #include "imagetexture.h"
 #include "skybox.h"
+#include "profiler.h"
+#include "ibl.h"
+#include "gltfmodel.h"
+#include "shadowmap.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cctype>
+#include <cstdlib>
+#include <cstring>
 
 
 using std::vector;
@@ -18,6 +31,8 @@ GLuint fragmentShader;
 
 
 // Global variables.
+GLFWwindow* window = nullptr;
+bool reportLiveObjects = false;
 int screenWidth = 600;
 int screenHeight = 600;
 // Triangle mesh.
@@ -88,13 +103,77 @@ struct ScenePointLight
 ScenePointLight pointLightObj;
 ScenePointLight spotLightObj;
 
+// Frame capture (--capture <file.ppm>): write one frame and exit.
+std::string captureFilePath;
+// Profiling (always on). --bench <frames> renders a fixed animation with vsync
+// off, writes a CSV (--csv <file>) and prints mean / median / p95, then exits.
+FrameProfiler* profiler = nullptr;
+int benchFrames = 0;
+int benchWarmupFrames = 60;
+std::string benchCsvPath = "bench.csv";
+// Note: on tile-based GPUs (Apple silicon) fragment work for the whole frame may
+// execute when the render pass is flushed, so the per-pass GPU split is approximate;
+// cpu_frame with vsync off is the end-to-end number.
+bool vsyncEnabled = true;
+std::chrono::steady_clock::time_point lastTitleUpdate;
+double loadMtlMs = 0.0, loadObjMs = 0.0, loadUploadMs = 0.0;
+void FinishBenchmark();
+// Model to load (--model <file.obj>); its .mtl must sit next to it with the same name.
+std::string modelFilePath = "assets/Rose/Rose.obj";
+// --dedup off keeps one vertex per face corner (the original layout), for comparison.
+bool deduplicateVertices = true;
+// --reflect k: environment reflection strength for every material (0..1).
+// Negative (default) keeps each material's own value from the MTL (illum 3-7).
+float reflectOverride = -1.0f;
+// --shading pbr: Cook-Torrance + image-based lighting from --env <file.hdr>
+// (replaces the Phong shader and the sphere skybox). --metallic/--roughness
+// override every material; --exposure scales before tone mapping.
+bool usePbr = false;
+std::string environmentFilePath = "assets/third_party/hdri/studio_small_08_2k.hdr";
+float exposure = 1.0f;
+float iblIntensity = 1.0f;
+float metallicOverride = -1.0f;
+float roughnessOverride = -1.0f;
+EnvironmentIBL* environment = nullptr;
+// Models ending in .gltf / .glb load through the glTF path and always use PBR.
+GltfModel* gltfModel = nullptr;
+bool IsGltfPath(const std::string& path)
+{
+    auto endsWith = [&](const char* ext) {
+        const size_t n = std::strlen(ext);
+        return path.size() >= n && std::equal(path.end() - n, path.end(), ext,
+            [](char a, char b) { return std::tolower((unsigned char)a) == b; });
+    };
+    return endsWith(".gltf") || endsWith(".glb");
+}
+void SetPbrFrameUniforms(const glm::mat4& normalMatrix, const glm::mat4& MVP);
+// --shadows on: directional-light shadow map (--shadow-size N, --pcf 1|3|5).
+bool shadowsEnabled = false;
+// --sync-timing on: glFinish around each pass (see FrameProfiler::SetSynchronous).
+bool syncTiming = false;
+int shadowMapSize = 2048;
+int pcfKernel = 3;
+ShadowMap* shadowMap = nullptr;
+// Models are normalized to a unit box and scaled by 1.5, so a sphere of this
+// radius around the origin contains them at any rotation.
+const float kSceneRadius = 1.5f * 0.8661f;
+void SetShadowUniforms(ShaderProg& p);
+void DrawGltfPBR(const glm::mat4& normalMatrix, const glm::mat4& MVP);
+ShaderProg* pbrShader = nullptr;
+void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::mat4& MVP);
+// --skybox <image>: equirectangular panorama for the background and reflections.
+std::string skyboxFilePath = "assets/textures/photostudio_02_2k.png";
+int framesRendered = 0;
+const int captureAfterFrames = 10;
+void CaptureFrame(const std::string& path);
+void ReportLiveGLObjects();
+
 // Function prototypes.
 void ReleaseResources();
 // Callback functions.
 void RenderSceneCB();
-void ReshapeCB(int, int);
-void ProcessSpecialKeysCB(int, int, int);
-void ProcessKeysCB(unsigned char, int, int);
+void FramebufferSizeCB(GLFWwindow*, int, int);
+void KeyCB(GLFWwindow*, int, int, int, int);
 void SetupRenderState();
 void LoadObjects();
 void CreateCamera();
@@ -122,6 +201,33 @@ void ReleaseResources()
         delete spotLight;
         spotLight = nullptr;
     }
+    sceneObj.mesh = nullptr;
+    pointLightObj.light = nullptr;
+    spotLightObj.light = nullptr;
+    if (skybox != nullptr) {
+        delete skybox;
+        skybox = nullptr;
+    }
+    if (profiler != nullptr) {
+        delete profiler;
+        profiler = nullptr;
+    }
+    if (environment != nullptr) {
+        delete environment;
+        environment = nullptr;
+    }
+    if (gltfModel != nullptr) {
+        delete gltfModel;
+        gltfModel = nullptr;
+    }
+    if (shadowMap != nullptr) {
+        delete shadowMap;
+        shadowMap = nullptr;
+    }
+    if (pbrShader != nullptr) {
+        delete pbrShader;
+        pbrShader = nullptr;
+    }
     // Delete camera.
     if (camera != nullptr) {
         delete camera;
@@ -142,85 +248,111 @@ void ReleaseResources()
     }
 }
 
-static float curObjRotationY = 30.0f;
+static float initialObjRotationY = 30.0f;
+static float curObjRotationY = initialObjRotationY;
 const float rotStep = 0.002f;
 void RenderSceneCB()
 {
+    profiler->BeginFrame();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // Render a triangle mesh with Gouraud shading. ----------------------------------------------
     TriangleMesh* pMesh = sceneObj.mesh;
-    if (pMesh != nullptr) {
-        // Update transform.
-        // curObjRotationY += rotStep;
+    if (pMesh != nullptr || gltfModel != nullptr) {
+        // Update transform. Benchmarks turn the model a fixed 0.36 degrees per frame
+        // so every run renders the same sequence of views.
+        if (benchFrames > 0)
+            curObjRotationY = initialObjRotationY + 0.36f * (float)framesRendered;
         glm::mat4x4 S = glm::scale(glm::mat4x4(1.0f), glm::vec3(1.5f, 1.5f, 1.5f));
         glm::mat4x4 R = glm::rotate(glm::mat4x4(1.0f), glm::radians(curObjRotationY), glm::vec3(0, 1, 0));
         sceneObj.worldMatrix = S * R;
-        // -------------------------------------------------------
-		// Note: if you want to compute lighting in the View Space, 
-        //       you might need to change the code below.
-		// -------------------------------------------------------
-        glm::mat4x4 normalMatrix = glm::transpose(glm::inverse(camera->GetViewMatrix() * sceneObj.worldMatrix));
+        // Lighting is computed in world space, so normals use the world matrix only.
+        glm::mat4x4 normalMatrix = glm::transpose(glm::inverse(sceneObj.worldMatrix));
         glm::mat4x4 MVP = camera->GetProjMatrix() * camera->GetViewMatrix() * sceneObj.worldMatrix;
-        
-        // -------------------------------------------------------
-		// Add your rendering code here.
-		// -------------------------------------------------------
-        phongShadingShader->Bind();
 
-        glUniformMatrix4fv(phongShadingShader->GetLocM(), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
-        glUniformMatrix4fv(phongShadingShader->GetLocNM(), 1, GL_FALSE, glm::value_ptr(normalMatrix));
-        glUniformMatrix4fv(phongShadingShader->GetLocMVP(), 1, GL_FALSE, glm::value_ptr(MVP));
-
-        glUniform3fv(phongShadingShader->GetLocAmbientLight(), 1, glm::value_ptr(ambientLight));
-        glUniform3fv(phongShadingShader->GetLocCameraPos(), 1, glm::value_ptr(cameraPos));
-        glUniform3fv(phongShadingShader->GetLocDirLightDir(), 1, glm::value_ptr(dirLightDirection));
-        glUniform3fv(phongShadingShader->GetLocDirLightRadiance(), 1, glm::value_ptr(dirLightRadiance));
-        glUniform3fv(phongShadingShader->GetLocPointLightIntensity(), 1, glm::value_ptr(pointLightIntensity));
-        glUniform3fv(phongShadingShader->GetLocPointLightPos(), 1, glm::value_ptr(pointLightPosition));
-        glUniform3fv(phongShadingShader->GetLocSpotLightDir(), 1, glm::value_ptr(spotLightDirection));
-        glUniform3fv(phongShadingShader->GetLocSpotLightIntensity(), 1, glm::value_ptr(spotLightIntensity));
-        glUniform3fv(phongShadingShader->GetLocSpotLightPos(), 1, glm::value_ptr(spotLightPosition));
-        glUniform1f(phongShadingShader->GetLoclightconstant(), constant);
-        glUniform1f(phongShadingShader->GetLoclightlinear(), linear);
-        glUniform1f(phongShadingShader->GetLoclightquadratic(), quadratic);
-        glUniform1f(phongShadingShader->GetLocspotLightCutoffStartInDegree(), spotLightCutoffStartInDegree);
-        glUniform1f(phongShadingShader->GetLocspotLightTotalWidthInDegree(), spotLightTotalWidthInDegree);
-
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
-        glEnableVertexAttribArray(2);
-        glBindBuffer(GL_ARRAY_BUFFER, mesh->GetvboId());
-
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), 0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), (const GLvoid*)12);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(VertexPTN), (const GLvoid*)24);
-
-
-        for (int i = 0; i < mesh->GetNumSubMeshes(); i++) {
-            SubMesh tmp = mesh->GetSubMeshesPosition(i);
-
-            glUniform3fv(phongShadingShader->GetLocKa(), 1, glm::value_ptr(tmp.material->GetKa()));
-            glUniform3fv(phongShadingShader->GetLocKd(), 1, glm::value_ptr(tmp.material->GetKd()));
-            glUniform3fv(phongShadingShader->GetLocKs(), 1, glm::value_ptr(tmp.material->GetKs()));
-            if (tmp.material->GetMapKd() != nullptr) {
-                tmp.material->GetMapKd()->Bind(GL_TEXTURE0);
-                glUniform1i(phongShadingShader->GetLocmapKd(), 0);
-            }
-            
-            glUniform1f(phongShadingShader->GetLocNs(), tmp.material->GetNs());
-
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tmp.iboId);
-            glDrawElements(GL_TRIANGLES, tmp.vertexIndices.size(), GL_UNSIGNED_INT, 0);
-
+        // Shadow pass: depth from the directional light into the shadow map.
+        if (shadowMap != nullptr) {
+            profiler->BeginPass(PASS_SHADOW);
+            shadowMap->Begin(dirLight->GetDirection(), glm::vec3(0.0f), kSceneRadius);
+            ShaderProg& depth = shadowMap->GetDepthShader();
+            glm::mat4 lightMVP = shadowMap->GetLightViewProj() * sceneObj.worldMatrix;
+            glUniformMatrix4fv(depth.Uniform("lightMVP"), 1, GL_FALSE, glm::value_ptr(lightMVP));
+            std::vector<long long> trianglesPerDraw;
+            if (gltfModel != nullptr)
+                gltfModel->DrawGeometryOnly(trianglesPerDraw);
+            else
+                pMesh->DrawGeometryOnly(trianglesPerDraw);
+            for (long long t : trianglesPerDraw)
+                profiler->CountDraw(t);
+            shadowMap->End(screenWidth, screenHeight);
+            profiler->EndPass(PASS_SHADOW);
         }
-        phongShadingShader->UnBind();
+
+        profiler->BeginPass(PASS_MESH);
+        if (gltfModel != nullptr) {
+            DrawGltfPBR(normalMatrix, MVP);
+        } else if (usePbr) {
+            DrawMeshPBR(pMesh, normalMatrix, MVP);
+        } else {
+            phongShadingShader->Bind();
+
+            glUniformMatrix4fv(phongShadingShader->GetLocM(), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
+            glUniformMatrix4fv(phongShadingShader->GetLocNM(), 1, GL_FALSE, glm::value_ptr(normalMatrix));
+            glUniformMatrix4fv(phongShadingShader->GetLocMVP(), 1, GL_FALSE, glm::value_ptr(MVP));
+
+            // The light objects are the single source of truth for light state.
+            glUniform3fv(phongShadingShader->GetLocAmbientLight(), 1, glm::value_ptr(ambientLight));
+            glUniform3fv(phongShadingShader->GetLocCameraPos(), 1, glm::value_ptr(cameraPos));
+            glUniform3fv(phongShadingShader->GetLocDirLightDir(), 1, glm::value_ptr(dirLight->GetDirection()));
+            glUniform3fv(phongShadingShader->GetLocDirLightRadiance(), 1, glm::value_ptr(dirLight->GetRadiance()));
+            glUniform3fv(phongShadingShader->GetLocPointLightIntensity(), 1, glm::value_ptr(pointLight->GetIntensity()));
+            glUniform3fv(phongShadingShader->GetLocPointLightPos(), 1, glm::value_ptr(pointLight->GetPosition()));
+            glUniform3fv(phongShadingShader->GetLocSpotLightDir(), 1, glm::value_ptr(spotLight->GetDirection()));
+            glUniform3fv(phongShadingShader->GetLocSpotLightIntensity(), 1, glm::value_ptr(spotLight->GetIntensity()));
+            glUniform3fv(phongShadingShader->GetLocSpotLightPos(), 1, glm::value_ptr(spotLight->GetPosition()));
+            glUniform1f(phongShadingShader->GetLoclightconstant(), constant);
+            glUniform1f(phongShadingShader->GetLoclightlinear(), linear);
+            glUniform1f(phongShadingShader->GetLoclightquadratic(), quadratic);
+            glUniform1f(phongShadingShader->GetLocspotLightCutoffStartInDegree(), spotLight->GetCutoffStartInDegree());
+            glUniform1f(phongShadingShader->GetLocspotLightTotalWidthInDegree(), spotLight->GetTotalWidthInDegree());
+            glUniform1i(phongShadingShader->GetLocmapKd(), 0);
+            SetShadowUniforms(*phongShadingShader);
+        // The skybox panorama doubles as the environment map (texture unit 1).
+            glUniform1i(phongShadingShader->GetLocEnvMap(), 1);
+            if (skybox != nullptr)
+                skybox->GetTexture()->Bind(GL_TEXTURE1);
+
+            for (int i = 0; i < pMesh->GetNumSubMeshes(); i++) {
+                const SubMesh& sub = pMesh->GetSubMeshesPosition(i);
+                if (sub.vaoId == 0) continue;
+
+                glUniform3fv(phongShadingShader->GetLocKa(), 1, glm::value_ptr(sub.material->GetKa()));
+                glUniform3fv(phongShadingShader->GetLocKd(), 1, glm::value_ptr(sub.material->GetKd()));
+                glUniform3fv(phongShadingShader->GetLocKs(), 1, glm::value_ptr(sub.material->GetKs()));
+                glUniform1f(phongShadingShader->GetLocNs(), sub.material->GetNs());
+                const float reflectivity = (skybox == nullptr) ? 0.0f
+                    : (reflectOverride >= 0.0f ? reflectOverride : sub.material->GetReflectivity());
+                glUniform1f(phongShadingShader->GetLocReflectivity(), reflectivity);
+                const bool hasMapKd = sub.material->GetMapKd() != nullptr;
+                glUniform1i(phongShadingShader->GetLocHasMapKd(), hasMapKd ? 1 : 0);
+                if (hasMapKd)
+                    sub.material->GetMapKd()->Bind(GL_TEXTURE0);
+
+                glBindVertexArray(sub.vaoId);
+                glDrawElements(GL_TRIANGLES, (GLsizei)sub.vertexIndices.size(), GL_UNSIGNED_INT, 0);
+                profiler->CountDraw((long long)sub.vertexIndices.size() / 3);
+            }
+            glBindVertexArray(0);
+            phongShadingShader->UnBind();
+        }
+        profiler->EndPass(PASS_MESH);
 
 
     }
     // -------------------------------------------------------------------------------------------
 
     // Visualize the light with fill color. ------------------------------------------------------
+    profiler->BeginPass(PASS_LIGHTS);
     PointLight* pointLight = pointLightObj.light;
     if (pointLight != nullptr) {
         glm::mat4x4 T = glm::translate(glm::mat4x4(1.0f), pointLight->GetPosition());
@@ -231,6 +363,7 @@ void RenderSceneCB()
         glUniform3fv(fillColorShader->GetLocFillColor(), 1, glm::value_ptr(pointLightObj.visColor));
         // Render the point light.
         pointLight->Draw();
+        profiler->CountDraw(0);
         fillColorShader->UnBind();
     }
     SpotLight* spotLight = (SpotLight*)(spotLightObj.light);
@@ -243,8 +376,10 @@ void RenderSceneCB()
         glUniform3fv(fillColorShader->GetLocFillColor(), 1, glm::value_ptr(spotLightObj.visColor));
         // Render the spot light.
         spotLight->Draw();
+        profiler->CountDraw(0);
         fillColorShader->UnBind();
     }
+    profiler->EndPass(PASS_LIGHTS);
     // -------------------------------------------------------------------------------------------
     
     // Render skybox. ----------------------------------------------------------------------------
@@ -252,15 +387,237 @@ void RenderSceneCB()
         // -------------------------------------------------------
 	    // Add your code to rotate the skybox.
         // -------------------------------------------------------
+        profiler->BeginPass(PASS_SKYBOX);
         skybox->Render(camera, skyboxShader);
+        profiler->CountDraw(skybox->GetNumTriangles());
+        profiler->EndPass(PASS_SKYBOX);
+    }
+    if (environment != nullptr) {
+        profiler->BeginPass(PASS_SKYBOX);
+        environment->RenderSkybox(camera, exposure);
+        profiler->CountDraw(environment->GetSkyboxTriangles());
+        profiler->EndPass(PASS_SKYBOX);
     }
     // -------------------------------------------------------------------------------------------
 
-    glutSwapBuffers();
+    ++framesRendered;
+    if (!captureFilePath.empty() && framesRendered == captureAfterFrames) {
+        CaptureFrame(captureFilePath);
+        reportLiveObjects = true;
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+        return;
+    }
+
+    profiler->EndFrame();
+    glfwSwapBuffers(window);
+
+    if (benchFrames > 0) {
+        // Drop warm-up frames (shader compilation, texture residency, clocks ramping).
+        if (framesRendered == benchWarmupFrames) {
+            profiler->Finish();
+            profiler->ClearSamples();
+        }
+        if (framesRendered == benchWarmupFrames + benchFrames)
+            FinishBenchmark();
+        return;
+    }
+
+    // Interactive mode: show a one-second rolling average in the window title.
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration<double>(now - lastTitleUpdate).count() >= 1.0) {
+        lastTitleUpdate = now;
+        std::vector<double> cpu, gpu;
+        for (const FrameSample& f : profiler->GetSamples()) {
+            if (f.cpuFrameMs > 0.0) cpu.push_back(f.cpuFrameMs);
+            gpu.push_back(f.gpuTotalMs);
+        }
+        Stats c = ComputeStats(cpu), g = ComputeStats(gpu);
+        std::ostringstream title;
+        title << std::fixed << std::setprecision(2) << "Rendering Engine | frame " << c.mean
+              << " ms | GPU " << g.mean << " ms | draws " << (profiler->GetSamples().empty() ? 0 : profiler->GetSamples().back().drawCalls);
+        glfwSetWindowTitle(window, title.str().c_str());
+        profiler->ClearSamples();
+    }
 }
 
-void ReshapeCB(int w, int h)
+void SetShadowUniforms(ShaderProg& p)
 {
+    // Unit 8 always holds the shadow map (or nothing when shadows are off; the
+    // shader then returns before sampling it).
+    glUniform1i(p.Uniform("shadowMap"), 8);
+    glUniform1i(p.Uniform("shadowsEnabled"), shadowMap != nullptr ? 1 : 0);
+    if (shadowMap == nullptr)
+        return;
+    glUniformMatrix4fv(p.Uniform("lightViewProj"), 1, GL_FALSE, glm::value_ptr(shadowMap->GetLightViewProj()));
+    glUniform1i(p.Uniform("pcfRadius"), pcfKernel / 2);
+    glUniform1f(p.Uniform("shadowTexelSize"), 1.0f / (float)shadowMap->GetSize());
+    glUniform1f(p.Uniform("shadowNormalOffset"), 1.5f * shadowMap->GetTexelWorldSize());
+    glActiveTexture(GL_TEXTURE8);
+    glBindTexture(GL_TEXTURE_2D, shadowMap->GetTexture());
+    glActiveTexture(GL_TEXTURE0);
+}
+
+void SetPbrFrameUniforms(const glm::mat4& normalMatrix, const glm::mat4& MVP)
+{
+    ShaderProg& p = *pbrShader;
+    SetShadowUniforms(p);
+    glUniformMatrix4fv(p.Uniform("worldMatrix"), 1, GL_FALSE, glm::value_ptr(sceneObj.worldMatrix));
+    glUniformMatrix4fv(p.Uniform("normalMatrix"), 1, GL_FALSE, glm::value_ptr(normalMatrix));
+    glUniformMatrix4fv(p.Uniform("MVP"), 1, GL_FALSE, glm::value_ptr(MVP));
+    glUniform3fv(p.Uniform("cameraPos"), 1, glm::value_ptr(cameraPos));
+    glUniform3fv(p.Uniform("dirLightDir"), 1, glm::value_ptr(dirLight->GetDirection()));
+    glUniform3fv(p.Uniform("dirLightRadiance"), 1, glm::value_ptr(dirLight->GetRadiance()));
+    glUniform3fv(p.Uniform("pointLightPos"), 1, glm::value_ptr(pointLight->GetPosition()));
+    glUniform3fv(p.Uniform("pointLightIntensity"), 1, glm::value_ptr(pointLight->GetIntensity()));
+    glUniform3fv(p.Uniform("spotLightPosition"), 1, glm::value_ptr(spotLight->GetPosition()));
+    glUniform3fv(p.Uniform("spotLightDirection"), 1, glm::value_ptr(spotLight->GetDirection()));
+    glUniform3fv(p.Uniform("spotLightIntensity"), 1, glm::value_ptr(spotLight->GetIntensity()));
+    glUniform1f(p.Uniform("constant"), constant);
+    glUniform1f(p.Uniform("linear"), linear);
+    glUniform1f(p.Uniform("quadratic"), quadratic);
+    glUniform1f(p.Uniform("spotLightCutoffStartInDegree"), spotLight->GetCutoffStartInDegree());
+    glUniform1f(p.Uniform("spotLightTotalWidthInDegree"), spotLight->GetTotalWidthInDegree());
+    glUniform1f(p.Uniform("exposure"), exposure);
+    glUniform1f(p.Uniform("iblIntensity"), iblIntensity);
+    glUniform1f(p.Uniform("prefilterMaxLod"), environment->GetPrefilterMaxLod());
+    // Texture units: 0 base colour, 1 irradiance, 2 pre-filtered specular, 3 BRDF LUT.
+    glUniform1i(p.Uniform("mapKd"), 0);
+    glUniform1i(p.Uniform("irradianceMap"), 1);
+    glUniform1i(p.Uniform("prefilterMap"), 2);
+    glUniform1i(p.Uniform("brdfLUT"), 3);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, environment->GetIrradianceMap());
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, environment->GetPrefilterMap());
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, environment->GetBrdfLut());
+
+}
+
+void DrawGltfPBR(const glm::mat4& normalMatrix, const glm::mat4& MVP)
+{
+    pbrShader->Bind();
+    SetPbrFrameUniforms(normalMatrix, MVP);
+    std::vector<long long> trianglesPerDraw;
+    gltfModel->Draw(*pbrShader, trianglesPerDraw);
+    for (long long t : trianglesPerDraw)
+        profiler->CountDraw(t);
+    pbrShader->UnBind();
+}
+
+void DrawMeshPBR(TriangleMesh* mesh, const glm::mat4& normalMatrix, const glm::mat4& MVP)
+{
+    ShaderProg& p = *pbrShader;
+    p.Bind();
+    SetPbrFrameUniforms(normalMatrix, MVP);
+    // OBJ materials have no glTF maps.
+    glUniform1i(p.Uniform("hasMetallicRoughnessMap"), 0);
+    glUniform1i(p.Uniform("hasNormalMap"), 0);
+    glUniform1i(p.Uniform("hasOcclusionMap"), 0);
+    glUniform1i(p.Uniform("hasEmissiveMap"), 0);
+    glUniform3f(p.Uniform("emissiveFactor"), 0.0f, 0.0f, 0.0f);
+
+    for (int i = 0; i < mesh->GetNumSubMeshes(); i++) {
+        const SubMesh& sub = mesh->GetSubMeshesPosition(i);
+        if (sub.vaoId == 0) continue;
+        const PhongMaterial* m = sub.material;
+        glUniform3fv(p.Uniform("baseColor"), 1, glm::value_ptr(m->GetKd()));
+        glUniform1f(p.Uniform("metallic"), metallicOverride >= 0.0f ? metallicOverride : m->GetMetallic());
+        glUniform1f(p.Uniform("roughness"), roughnessOverride >= 0.0f ? roughnessOverride : m->GetRoughness());
+        const bool hasMapKd = m->GetMapKd() != nullptr;
+        glUniform1i(p.Uniform("hasMapKd"), hasMapKd ? 1 : 0);
+        if (hasMapKd)
+            m->GetMapKd()->Bind(GL_TEXTURE0);
+        glBindVertexArray(sub.vaoId);
+        glDrawElements(GL_TRIANGLES, (GLsizei)sub.vertexIndices.size(), GL_UNSIGNED_INT, 0);
+        profiler->CountDraw((long long)sub.vertexIndices.size() / 3);
+    }
+    glBindVertexArray(0);
+    glActiveTexture(GL_TEXTURE0);
+    p.UnBind();
+}
+
+void FinishBenchmark()
+{
+    std::vector<FrameSample> samples = profiler->Finish();
+    // The last frame's wall time is unknown (no next frame started); keep the
+    // first benchFrames complete frames.
+    if ((int)samples.size() > benchFrames) samples.resize(benchFrames);
+    if (!samples.empty() && samples.back().cpuFrameMs == 0.0) samples.pop_back();
+
+    GLint viewport[4];
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    std::cout << "\n=== Benchmark ===\n"
+              << "model: " << modelFilePath << "\n"
+              << "renderer: " << glGetString(GL_RENDERER) << " | " << glGetString(GL_VERSION) << "\n"
+              << "viewport: " << viewport[2] << "x" << viewport[3]
+              << " | vsync: " << (vsyncEnabled ? "on" : "off")
+              << " | warm-up frames: " << benchWarmupFrames
+              << " | timing: " << (syncTiming ? "synchronous (glFinish per pass)" : "timer queries") << "\n"
+              << std::fixed << std::setprecision(1)
+              << (gltfModel ? "load: images " : "load: MTL+textures ") << loadMtlMs
+              << (gltfModel ? " ms, glTF parse " : " ms, OBJ parse ") << loadObjMs
+              << " ms, GPU upload " << loadUploadMs << " ms\n";
+    if (environment != nullptr) {
+        const EnvironmentIBL::Timings& t = environment->GetTimings();
+        std::cout << "shading: PBR + IBL (" << environmentFilePath << "), precompute " << t.Total()
+                  << " ms: HDR load " << t.loadHdrMs << ", cubemap " << t.toCubemapMs
+                  << ", irradiance " << t.irradianceMs << ", prefilter " << t.prefilterMs
+                  << ", BRDF LUT " << t.brdfLutMs << "\n";
+    } else {
+        std::cout << "shading: Phong\n";
+    }
+    if (shadowMap != nullptr)
+        std::cout << "shadows: on, map " << shadowMapSize << "x" << shadowMapSize << ", PCF "
+                  << pcfKernel << "x" << pcfKernel << "\n";
+    else
+        std::cout << "shadows: off\n";
+    PrintBenchSummary(std::cout, samples);
+    if (WriteBenchCsv(benchCsvPath, samples))
+        std::cout << "CSV: " << benchCsvPath << std::endl;
+    else
+        std::cerr << "[ERROR] Cannot write " << benchCsvPath << std::endl;
+    glfwSetWindowShouldClose(window, GLFW_TRUE);
+}
+
+void ReportLiveGLObjects()
+{
+    // Names are handed out sequentially from 1, so a scan of the low range finds
+    // anything still alive after ReleaseResources().
+    int buffers = 0, textures = 0, vertexArrays = 0, programs = 0, framebuffers = 0;
+    for (GLuint id = 1; id <= 4096; ++id) {
+        buffers += glIsBuffer(id) ? 1 : 0;
+        textures += glIsTexture(id) ? 1 : 0;
+        vertexArrays += glIsVertexArray(id) ? 1 : 0;
+        programs += glIsProgram(id) ? 1 : 0;
+        framebuffers += (glIsFramebuffer(id) || glIsRenderbuffer(id)) ? 1 : 0;
+    }
+    std::cout << "Live GL objects after release: " << buffers << " buffers, "
+              << textures << " textures, " << vertexArrays << " vertex arrays, " << programs << " programs, "
+              << framebuffers << " framebuffers/renderbuffers" << std::endl;
+}
+
+void CaptureFrame(const std::string& path)
+{
+    // Read the back buffer (before swap) and save it as a binary PPM, top row first.
+    GLint viewport[4];
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    const int w = viewport[2], h = viewport[3];
+    std::vector<unsigned char> pixels((size_t)w * h * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+    std::ofstream ofs(path, std::ios::binary);
+    ofs << "P6\n" << w << " " << h << "\n255\n";
+    for (int y = h - 1; y >= 0; --y)
+        ofs.write((const char*)&pixels[(size_t)y * w * 3], (std::streamsize)w * 3);
+    std::cout << "Captured " << w << "x" << h << " frame to " << path << std::endl;
+}
+
+void FramebufferSizeCB(GLFWwindow*, int w, int h)
+{
+    if (w <= 0 || h <= 0)
+        return;	// minimized
     // Update viewport.
     screenWidth = w;
     screenHeight = h;
@@ -270,78 +627,29 @@ void ReshapeCB(int w, int h)
     camera->UpdateProjection(fovy, aspectRatio, zNear, zFar);
 }
 
-void ProcessSpecialKeysCB(int key, int x, int y)
+void KeyCB(GLFWwindow* win, int key, int, int action, int)
 {
-    // Handle special (functional) keyboard inputs such as F1, spacebar, page up, etc. 
+    if (action == GLFW_RELEASE)
+        return;
     switch (key) {
-    // Rendering mode.
-    case GLUT_KEY_F1:
-        // Render with point mode.
-        glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
+    case GLFW_KEY_ESCAPE:
+        glfwSetWindowShouldClose(win, GLFW_TRUE);
         break;
-    case GLUT_KEY_F2:
-        // Render with line mode.
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        break;
-    case GLUT_KEY_F3:
-        // Render with fill mode.
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        break;
-    
-    // Light control.
-    case GLUT_KEY_LEFT:
-        if (pointLight != nullptr)
-            pointLight->MoveLeft(lightMoveSpeed);
-        pointLightPosition.x -= lightMoveSpeed;
-        break;
-    case GLUT_KEY_RIGHT:
-        if (pointLight != nullptr)
-            pointLight->MoveRight(lightMoveSpeed);
-        pointLightPosition.x += lightMoveSpeed;
-
-        break;
-    case GLUT_KEY_UP:
-        if (pointLight != nullptr)
-            pointLight->MoveUp(lightMoveSpeed);
-        pointLightPosition.y += lightMoveSpeed;
-
-        break;
-    case GLUT_KEY_DOWN:
-        if (pointLight != nullptr)
-            pointLight->MoveDown(lightMoveSpeed);
-        pointLightPosition.y -= lightMoveSpeed;
-        break;
-    default:
-        break;
-    }
-}
-
-void ProcessKeysCB(unsigned char key, int x, int y)
-{
-    // Handle other keyboard inputs those are not defined as special keys.
-    if (key == 27) {
-        // Release memory allocation if needed.
-        ReleaseResources();
-        exit(0);
-    }
-    // Spot light control.
-    if (spotLight != nullptr) {
-        if (key == 'a') {
-            spotLightPosition.x -= lightMoveSpeed;
-            spotLight->MoveLeft(lightMoveSpeed);
-        }
-        if (key == 'd') {
-            spotLightPosition.x += lightMoveSpeed;
-            spotLight->MoveRight(lightMoveSpeed);
-        }
-        if (key == 'w') {
-            spotLightPosition.y += lightMoveSpeed;
-            spotLight->MoveUp(lightMoveSpeed);
-        }
-        if (key == 's') {
-            spotLightPosition.y -= lightMoveSpeed;
-            spotLight->MoveDown(lightMoveSpeed);
-        }
+    // Rendering mode: points, lines, fill.
+    case GLFW_KEY_F1: glPolygonMode(GL_FRONT_AND_BACK, GL_POINT); break;
+    case GLFW_KEY_F2: glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); break;
+    case GLFW_KEY_F3: glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); break;
+    // Point light: arrow keys.
+    case GLFW_KEY_LEFT:  if (pointLight != nullptr) pointLight->MoveLeft(lightMoveSpeed); break;
+    case GLFW_KEY_RIGHT: if (pointLight != nullptr) pointLight->MoveRight(lightMoveSpeed); break;
+    case GLFW_KEY_UP:    if (pointLight != nullptr) pointLight->MoveUp(lightMoveSpeed); break;
+    case GLFW_KEY_DOWN:  if (pointLight != nullptr) pointLight->MoveDown(lightMoveSpeed); break;
+    // Spot light: WASD.
+    case GLFW_KEY_A: if (spotLight != nullptr) spotLight->MoveLeft(lightMoveSpeed); break;
+    case GLFW_KEY_D: if (spotLight != nullptr) spotLight->MoveRight(lightMoveSpeed); break;
+    case GLFW_KEY_W: if (spotLight != nullptr) spotLight->MoveUp(lightMoveSpeed); break;
+    case GLFW_KEY_S: if (spotLight != nullptr) spotLight->MoveDown(lightMoveSpeed); break;
+    default: break;
     }
 }
 
@@ -365,16 +673,56 @@ void LoadObjects()
     //       the model dynamically.
 	// -------------------------------------------------------
 
+    using Clock = std::chrono::steady_clock;
+    if (IsGltfPath(modelFilePath)) {
+        GltfModelData data;
+        std::string error;
+        if (!LoadGltfFile(modelFilePath, data, error)) {
+            std::cerr << "[ERROR] " << modelFilePath << ": " << error << std::endl;
+            exit(1);
+        }
+        NormalizeToUnitBox(data);
+        auto tUpload = Clock::now();
+        gltfModel = new GltfModel();
+        gltfModel->Upload(data);
+        glFinish();
+        loadUploadMs = std::chrono::duration<double, std::milli>(Clock::now() - tUpload).count();
+        loadObjMs = data.stats.parseMs;
+        loadMtlMs = data.stats.imageDecodeMs;
+        std::cout << "# Vertices: " << gltfModel->GetNumVertices() << std::endl;
+        std::cout << "# Triangles: " << gltfModel->GetNumTriangles() << std::endl;
+        std::cout << "glTF: " << data.stats.nodesWithMesh << " mesh nodes, " << data.stats.primitives
+                  << " primitives (" << data.stats.skippedPrimitives << " skipped), "
+                  << gltfModel->GetNumMaterials() << " materials, " << data.stats.images << " images ("
+                  << data.stats.failedImages << " failed), generated tangents for "
+                  << data.stats.generatedTangents << " vertices, textures ~"
+                  << gltfModel->GetTextureBytes() / (1024 * 1024) << " MiB" << std::endl;
+        for (const std::string& ext : data.stats.extensionsUsed)
+            std::cout << "glTF extension used (ignored): " << ext << std::endl;
+        std::cout << std::fixed << std::setprecision(1) << "Load: glTF parse " << loadObjMs
+                  << " ms, images " << loadMtlMs << " ms, GPU upload " << loadUploadMs << " ms" << std::endl;
+        return;
+    }
+    auto t0 = Clock::now();
     mesh = new TriangleMesh();
-    //mesh->LoadFromFile("models/TexCube/TexCube.obj", true);
-    mesh->LoadFromFilemtl("assets/Rose/Rose.mtl", true);
-    mesh->LoadFromFile("assets/Rose/Rose.obj", true);
-    /*mesh->LoadFromFilemtl("D:/3rd_grade/computer_graphic/ICG2022_HW3/ICG2022_HW3/models/TexCube/TexCube.mtl", true);
-    mesh->LoadFromFile("D:/3rd_grade/computer_graphic/ICG2022_HW3/ICG2022_HW3/models/TexCube/TexCube.obj", true);*/
-    mesh->ShowInfo();
+    ObjLoadOptions options;
+    options.deduplicate = deduplicateVertices;
+    if (!mesh->LoadFromFile(modelFilePath, true, options))
+        exit(1);
+    auto tObj = Clock::now();
+    mesh->LoadMaterials();
+    auto t1 = Clock::now();
     mesh->CreateVertexBuffer();
     mesh->CreateSubmeshBuffer();
-    sceneObj.mesh = mesh;    
+    glFinish();
+    auto t2 = Clock::now();
+    loadObjMs = std::chrono::duration<double, std::milli>(tObj - t0).count();
+    loadMtlMs = std::chrono::duration<double, std::milli>(t1 - tObj).count();
+    loadUploadMs = std::chrono::duration<double, std::milli>(t2 - t1).count();
+    mesh->ShowInfo();
+    std::cout << std::fixed << std::setprecision(1) << "Load: MTL+textures " << loadMtlMs
+              << " ms, OBJ parse " << loadObjMs << " ms, GPU upload " << loadUploadMs << " ms" << std::endl;
+    sceneObj.mesh = mesh;
 }
 
 void CreateLights()
@@ -431,40 +779,131 @@ void CreateShaderLib()
 
 int main(int argc, char** argv)
 {
-    // Setting window properties.
-    glutInit(&argc, argv);
-    glutSetOption(GLUT_MULTISAMPLE, 4);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
-    glutInitWindowSize(screenWidth, screenHeight);
-    glutInitWindowPosition(100, 100);
-    glutCreateWindow("Texture Mapping");
+    for (int i = 1; i + 1 < argc; ++i) {
+        const std::string arg = argv[i];
+        const std::string value = argv[i + 1];
+        if (arg == "--capture")      captureFilePath = value;
+        else if (arg == "--model")   modelFilePath = value;
+        else if (arg == "--bench")   benchFrames = std::max(1, std::atoi(value.c_str()));
+        else if (arg == "--warmup")  benchWarmupFrames = std::max(0, std::atoi(value.c_str()));
+        else if (arg == "--csv")     benchCsvPath = value;
+        else if (arg == "--vsync")   vsyncEnabled = (value != "off");
+        else if (arg == "--dedup")   deduplicateVertices = (value != "off");
+        else if (arg == "--camera")    std::sscanf(value.c_str(), "%f,%f,%f", &cameraPos.x, &cameraPos.y, &cameraPos.z);
+        else if (arg == "--target")    std::sscanf(value.c_str(), "%f,%f,%f", &cameraTarget.x, &cameraTarget.y, &cameraTarget.z);
+        else if (arg == "--light-dir") std::sscanf(value.c_str(), "%f,%f,%f", &dirLightDirection.x, &dirLightDirection.y, &dirLightDirection.z);
+        else if (arg == "--light-color") std::sscanf(value.c_str(), "%f,%f,%f", &dirLightRadiance.x, &dirLightRadiance.y, &dirLightRadiance.z);
+        else if (arg == "--reflect")   reflectOverride = std::min(1.0f, (float)std::atof(value.c_str()));
+        else if (arg == "--skybox")    skyboxFilePath = value;
+        else if (arg == "--shading")   usePbr = (value == "pbr");
+        else if (arg == "--shadows")   shadowsEnabled = (value == "on");
+        else if (arg == "--sync-timing") syncTiming = (value == "on");
+        else if (arg == "--shadow-size") shadowMapSize = std::max(64, std::min(8192, std::atoi(value.c_str())));
+        else if (arg == "--pcf")       pcfKernel = std::max(1, std::min(5, std::atoi(value.c_str()) | 1));
+        else if (arg == "--env")       environmentFilePath = value;
+        else if (arg == "--exposure")  exposure = (float)std::atof(value.c_str());
+        else if (arg == "--ibl-intensity") iblIntensity = (float)std::atof(value.c_str());
+        else if (arg == "--metallic")  metallicOverride = std::min(1.0f, (float)std::atof(value.c_str()));
+        else if (arg == "--roughness") roughnessOverride = std::min(1.0f, (float)std::atof(value.c_str()));
+        else if (arg == "--rotate")    curObjRotationY = initialObjRotationY = (float)std::atof(value.c_str());
+        else if (arg == "--size")    std::sscanf(value.c_str(), "%dx%d", &screenWidth, &screenHeight);
+        else continue;
+        ++i;
+    }
+    if (IsGltfPath(modelFilePath))
+        usePbr = true;
+    if (benchFrames > 0 && !std::count(argv, argv + argc, std::string("--vsync")))
+        vsyncEnabled = false;
 
-    // Initialize GLEW.
-    // Must be done after glut is initialized!
+    // Window and OpenGL context.
+    if (!glfwInit()) {
+        std::cerr << "[ERROR] glfwInit failed" << std::endl;
+        return 1;
+    }
+#ifdef __APPLE__
+    // macOS only offers core profiles up to 4.1, and only forward-compatible ones.
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+    // One framebuffer pixel per window point, so --size means pixels and numbers
+    // stay comparable with the earlier GLUT runs.
+    glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);
+#else
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+#endif
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
+    window = glfwCreateWindow(screenWidth, screenHeight, "Rendering Engine", nullptr, nullptr);
+    if (window == nullptr) {
+        const char* description = nullptr;
+        glfwGetError(&description);
+        std::cerr << "[ERROR] Cannot create window: " << (description ? description : "unknown") << std::endl;
+        glfwTerminate();
+        return 1;
+    }
+    glfwMakeContextCurrent(window);
+
+#if defined(ENGINE_USE_GLEW)
+    // Core profiles need glewExperimental; glewInit can leave GL_INVALID_ENUM behind.
+    glewExperimental = GL_TRUE;
     GLenum res = glewInit();
     if (res != GLEW_OK) {
-        std::cerr << "GLEW initialization error: " 
+        std::cerr << "GLEW initialization error: "
                   << glewGetErrorString(res) << std::endl;
         return 1;
     }
+    glGetError();
+#endif
+    std::cout << "GL_VERSION: " << glGetString(GL_VERSION) << std::endl;
+    std::cout << "GL_RENDERER: " << glGetString(GL_RENDERER) << std::endl;
+
+    glfwSwapInterval(vsyncEnabled ? 1 : 0);
+    profiler = new FrameProfiler();
+    profiler->SetSynchronous(syncTiming);
+    lastTitleUpdate = std::chrono::steady_clock::now();
 
     // Initialization.
     SetupRenderState();
     LoadObjects();
     CreateLights();
     CreateCamera();
-    CreateSkybox("assets/textures/photostudio_02_2k.png");
+    if (usePbr) {
+        environment = new EnvironmentIBL();
+        if (!environment->Build(environmentFilePath, EnvironmentIBL::Settings())) {
+            std::cerr << "[ERROR] IBL setup failed (run tools/fetch_assets.sh for the HDR images)" << std::endl;
+            return 1;
+        }
+        const EnvironmentIBL::Timings& t = environment->GetTimings();
+        std::cout << std::fixed << std::setprecision(1) << "IBL precompute: " << t.Total() << " ms (HDR load "
+                  << t.loadHdrMs << ", cubemap " << t.toCubemapMs << ", irradiance " << t.irradianceMs
+                  << ", prefilter " << t.prefilterMs << ", BRDF LUT " << t.brdfLutMs << ")" << std::endl;
+        pbrShader = new ShaderProg();
+        if (!pbrShader->LoadFromFiles("shaders/pbr.vs", "shaders/pbr.fs"))
+            return 1;
+    } else {
+        CreateSkybox(skyboxFilePath);
+    }
     CreateShaderLib();
+    if (shadowsEnabled)
+        shadowMap = new ShadowMap(shadowMapSize);
 
-    // Register callback functions.
-    glutDisplayFunc(RenderSceneCB);
-    glutIdleFunc(RenderSceneCB);
-    glutReshapeFunc(ReshapeCB);
-    glutSpecialFunc(ProcessSpecialKeysCB);
-    glutKeyboardFunc(ProcessKeysCB);
+    glfwSetFramebufferSizeCallback(window, FramebufferSizeCB);
+    glfwSetKeyCallback(window, KeyCB);
+    int fbWidth = 0, fbHeight = 0;
+    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+    FramebufferSizeCB(window, fbWidth, fbHeight);
 
-    // Start rendering loop.
-    glutMainLoop();
+    // Rendering loop.
+    while (!glfwWindowShouldClose(window)) {
+        RenderSceneCB();
+        glfwPollEvents();
+    }
 
+    ReleaseResources();
+    if (reportLiveObjects)
+        ReportLiveGLObjects();
+    glfwDestroyWindow(window);
+    glfwTerminate();
     return 0;
 }

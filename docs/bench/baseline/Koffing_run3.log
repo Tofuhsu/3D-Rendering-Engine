@@ -1,0 +1,26 @@
+GL_VERSION: 4.1 Metal - 90.5
+GL_RENDERER: Apple M4 Pro
+# Vertices: 18782
+# Triangles: 9470
+Total 1 subMeshes loaded
+SubMesh 0 with material: Material.001
+Num. triangles in the subMesh: 9470
+Model Center: 0, 0, 0
+Model Extent: 0 x 0 x 0
+Load: MTL+textures 12.9 ms, OBJ parse 6.0 ms, GPU upload 0.1 ms
+
+=== Benchmark ===
+model: assets/Koffing/Koffing.obj
+renderer: Apple M4 Pro | 4.1 Metal - 90.5
+viewport: 600x600 | vsync: off | warm-up frames: 100
+load: MTL+textures 12.9 ms, OBJ parse 6.0 ms, GPU upload 0.1 ms
+Frames: 999
+  ms                   mean   median      p95      min      max
+  cpu_frame           0.641    0.378    3.242    0.220   24.182
+  cpu_render          0.208    0.193    0.325    0.118    0.614
+  gpu_mesh            0.040    0.032    0.117    0.000    0.369
+  gpu_lights          0.007    0.000    0.062    0.000    0.241
+  gpu_skybox          0.033    0.018    0.122    0.000    0.333
+  gpu_total           0.079    0.058    0.253    0.000    0.477
+  draw calls/frame: 4, triangles/frame: 10766
+CSV: docs/bench/baseline/Koffing_run3.csv
