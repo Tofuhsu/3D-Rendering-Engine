@@ -1,7 +1,7 @@
 # 3D Rendering Engine (C++ / OpenGL)
 
 A real-time renderer in C++17 and OpenGL 3.3/4.1 core with GLSL shaders. It started
-as a 2023 graphics course project (custom OBJ/MTL loading, Phong lighting, skybox)
+as a 2022 graphics course project (custom OBJ/MTL loading, Phong lighting, skybox)
 and was rebuilt in 2026: it now builds on macOS and Linux, has physically based
 shading with image-based lighting, shadow mapping, a glTF 2.0 loader, a frame-time
 profiler, unit tests, fuzzing and CI.
